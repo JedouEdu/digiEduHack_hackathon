@@ -7,7 +7,7 @@
 Before you start, please **carefully read all documents** in the `resources/` folder. They contain the rules, guidelines, data samples, and the template you must fill out.
 
 * `resources/DigiEduHack_solution_guidelines.pdf`: Contains all rules, guidelines, and judging criteria.
-* `resources/Digi_Edu_Hack_Solution_Canvas_2025.pdf`: This is the **mandatory template** you must fill out for us to send it to the European Comission if you were the winner of this Hackathon.
+* `resources/Digi_Edu_Hack_Solution_Canvas_2025.pdf`: This is the **mandatory template** you must fill out and send to the [DigiEduHack submission platform](https://digieduhack.com/host/submit-solution?relatedChallenge=106879). Only 1 team member is submitting the solution.
 * **[Download Data Samples](https://drive.google.com/drive/folders/1KVzBOg1ktjgJd16rlyVDPniwRMDWNYYt?usp=sharing)**: Contains data samples provided for the challenge.
 
 ---
