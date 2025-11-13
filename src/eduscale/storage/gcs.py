@@ -47,8 +47,9 @@ class GCSStorageBackend(StorageBackend):
         Returns:
             Tuple of (signed_url, blob_path)
         """
-        from google.auth import compute_engine
+        from google.auth import default, iam
         from google.auth.transport import requests as auth_requests
+        import google.auth.credentials
         
         bucket = self._get_bucket()
 
@@ -56,13 +57,33 @@ class GCSStorageBackend(StorageBackend):
         blob_path = f"raw/{file_id}/{safe_name}"
         blob = bucket.blob(blob_path)
 
-        # Use compute engine credentials with IAM-based signing
-        # This uses the IAM signBlob API instead of requiring a private key
-        credentials = compute_engine.Credentials()
+        # Get default credentials (works in Cloud Run)
+        credentials, project = default()
         
-        # Refresh credentials to get the service account email
+        # Create a signer using IAM signBlob API
+        # This doesn't require a private key, just the iam.serviceAccountTokenCreator permission
         auth_request = auth_requests.Request()
-        credentials.refresh(auth_request)
+        
+        # Get the service account email
+        if hasattr(credentials, 'service_account_email'):
+            service_account_email = credentials.service_account_email
+        else:
+            # For compute engine, get from metadata
+            service_account_email = credentials.signer_email if hasattr(credentials, 'signer_email') else None
+            
+        if not service_account_email:
+            raise ValueError("Could not determine service account email from credentials")
+        
+        # Create IAM signer
+        signer = iam.Signer(
+            request=auth_request,
+            credentials=credentials,
+            service_account_email=service_account_email
+        )
+        
+        # Create signing credentials
+        signing_credentials = google.auth.credentials.Credentials()
+        signing_credentials._signer = signer
         
         # Generate V4 signed URL for PUT using IAM signing
         signed_url = blob.generate_signed_url(
@@ -71,8 +92,8 @@ class GCSStorageBackend(StorageBackend):
             method="PUT",
             content_type=content_type,
             headers={"Content-Type": content_type},
-            credentials=credentials,
-            service_account_email=credentials.service_account_email,
+            credentials=signing_credentials,
+            service_account_email=service_account_email,
         )
 
         return signed_url, blob_path
