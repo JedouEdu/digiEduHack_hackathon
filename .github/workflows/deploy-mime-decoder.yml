@@ -1,14 +1,6 @@
 name: Build and Deploy MIME Decoder to Cloud Run
 
 on:
-  push:
-    branches:
-      - master
-    paths:
-      - 'src/eduscale/services/mime_decoder/**'
-      - 'docker/Dockerfile.mime-decoder'
-      - '.github/workflows/deploy-mime-decoder.yml'
-      - 'infra/mime-decoder-config.yaml'
   workflow_dispatch:
     inputs:
       image_tag:
