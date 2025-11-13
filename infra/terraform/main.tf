@@ -26,9 +26,10 @@ resource "google_artifact_registry_repository" "eduscale_repo" {
 
 # Cloud Run Service (v2)
 resource "google_cloud_run_v2_service" "eduscale_engine" {
-  name     = var.service_name
-  location = var.region
-  ingress  = "INGRESS_TRAFFIC_ALL"
+  name               = var.service_name
+  location           = var.region
+  ingress            = "INGRESS_TRAFFIC_ALL"
+  deletion_protection = false
 
   template {
     # Scaling configuration
@@ -102,4 +103,37 @@ resource "google_cloud_run_v2_service_iam_member" "public_access" {
   name     = google_cloud_run_v2_service.eduscale_engine.name
   role     = "roles/run.invoker"
   member   = "allUsers"
+}
+
+# Service Account for GitHub Actions
+resource "google_service_account" "github_actions" {
+  account_id   = "github-actions"
+  display_name = "GitHub Actions Service Account"
+  description  = "Service account for GitHub Actions CI/CD pipeline"
+}
+
+# Grant Cloud Run Admin role to GitHub Actions service account
+resource "google_project_iam_member" "github_actions_run_admin" {
+  project = var.project_id
+  role    = "roles/run.admin"
+  member  = "serviceAccount:${google_service_account.github_actions.email}"
+}
+
+# Grant Artifact Registry Writer role to GitHub Actions service account
+resource "google_project_iam_member" "github_actions_artifact_writer" {
+  project = var.project_id
+  role    = "roles/artifactregistry.writer"
+  member  = "serviceAccount:${google_service_account.github_actions.email}"
+}
+
+# Grant Service Account User role to GitHub Actions service account
+resource "google_project_iam_member" "github_actions_sa_user" {
+  project = var.project_id
+  role    = "roles/iam.serviceAccountUser"
+  member  = "serviceAccount:${google_service_account.github_actions.email}"
+}
+
+# Create service account key for GitHub Actions
+resource "google_service_account_key" "github_actions_key" {
+  service_account_id = google_service_account.github_actions.name
 }

@@ -33,3 +33,16 @@ output "service_name" {
   description = "The Cloud Run service name"
   value       = var.service_name
 }
+
+# GitHub Actions Service Account Email
+output "github_actions_service_account_email" {
+  description = "The email of the GitHub Actions service account"
+  value       = google_service_account.github_actions.email
+}
+
+# GitHub Actions Service Account Key (sensitive)
+output "github_actions_service_account_key" {
+  description = "The private key for GitHub Actions service account (base64 encoded)"
+  value       = google_service_account_key.github_actions_key.private_key
+  sensitive   = true
+}
