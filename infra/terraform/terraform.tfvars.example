@@ -1,0 +1,19 @@
+# Example Terraform Variables Configuration
+# Copy this file to terraform.tfvars and update with your values
+
+# Required: Your GCP Project ID
+project_id = "your-gcp-project-id"
+
+# Optional: Override defaults if needed
+region              = "europe-west1"
+service_name        = "eduscale-engine"
+repository_id       = "eduscale-engine-repo"
+image_tag           = "latest"
+service_version     = "0.1.0"
+environment         = "prod"
+min_instance_count  = 0
+max_instance_count  = 10
+cpu                 = "1"
+memory              = "512Mi"
+container_port      = 8080
+allow_unauthenticated = true
