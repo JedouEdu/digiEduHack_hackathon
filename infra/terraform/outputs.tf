@@ -46,3 +46,31 @@ output "uploads_bucket_name" {
   description = "Name of the GCS bucket for file uploads"
   value       = google_storage_bucket.uploads.name
 }
+
+# MIME Decoder Service Information
+output "mime_decoder_service_name" {
+  description = "The name of the MIME Decoder Cloud Run service"
+  value       = google_cloud_run_service.mime_decoder.name
+}
+
+output "mime_decoder_service_url" {
+  description = "The URL of the MIME Decoder Cloud Run service"
+  value       = google_cloud_run_service.mime_decoder.status[0].url
+}
+
+# Eventarc Trigger Information
+output "eventarc_trigger_name" {
+  description = "The name of the Eventarc trigger for Cloud Storage events"
+  value       = google_eventarc_trigger.storage_trigger.name
+}
+
+output "eventarc_trigger_id" {
+  description = "The full resource ID of the Eventarc trigger"
+  value       = google_eventarc_trigger.storage_trigger.id
+}
+
+# Eventarc Service Account
+output "eventarc_service_account_email" {
+  description = "The email of the Eventarc trigger service account"
+  value       = google_service_account.eventarc_trigger.email
+}

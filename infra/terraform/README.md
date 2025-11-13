@@ -3,7 +3,11 @@
 This folder contains Terraform configuration to provision core GCP infrastructure for the EduScale Engine service, including:
 
 - **Google Artifact Registry**: Docker repository for container images
-- **Google Cloud Run**: Managed container platform for the FastAPI application
+- **Google Cloud Run**: Managed container platform for FastAPI applications
+- **Cloud Storage**: Bucket for file uploads with lifecycle management
+- **Eventarc**: Event-driven automation for file processing
+- **MIME Decoder Service**: Cloud Run service for file type detection and routing
+- **Cloud Monitoring**: Alert policies and metrics for event delivery
 
 ## Prerequisites
 
@@ -268,17 +272,224 @@ For team collaboration, consider using remote state in GCS:
    terraform init -migrate-state
    ```
 
+## Eventarc Integration
+
+The infrastructure includes an event-driven file processing pipeline:
+
+### Architecture Flow
+
+```
+User uploads file → Cloud Storage
+    ↓ (OBJECT_FINALIZE event)
+Eventarc Trigger
+    ↓ (HTTP POST with CloudEvent)
+MIME Decoder (Cloud Run)
+    ↓ (file type classification)
+Transformer Service (future)
+    ↓ (text extraction)
+Tabular Service (future)
+    ↓ (schema inference & loading)
+BigQuery (future)
+```
+
+### Components
+
+1. **Cloud Storage Bucket** (`google_storage_bucket.uploads`)
+   - Stores uploaded files
+   - Emits OBJECT_FINALIZE events when files are uploaded
+   - Lifecycle policy: Delete files after 90 days (configurable)
+
+2. **Eventarc Trigger** (`google_eventarc_trigger.storage_trigger`)
+   - Subscribes to Cloud Storage OBJECT_FINALIZE events
+   - Filters events by bucket name
+   - Routes events to MIME Decoder service
+   - Automatic retry with exponential backoff (5 attempts)
+
+3. **MIME Decoder Service** (`google_cloud_run_service.mime_decoder`)
+   - Receives CloudEvents from Eventarc
+   - Detects file MIME type
+   - Classifies files into categories: text, image, audio, archive, other
+   - Logs all processing with structured logging
+
+4. **Service Accounts**
+   - `eventarc-trigger-sa`: Used by Eventarc to invoke MIME Decoder
+   - Has only Cloud Run Invoker and Eventarc Event Receiver permissions
+   - NO Cloud Storage permissions (events are pushed, not pulled)
+
+### Deployment Steps for Eventarc Integration
+
+#### Prerequisites
+
+1. Ensure all required APIs are enabled:
+   ```bash
+   gcloud services enable eventarc.googleapis.com
+   gcloud services enable storage.googleapis.com
+   gcloud services enable run.googleapis.com
+   ```
+
+2. Build and push MIME Decoder Docker image:
+   ```bash
+   # Build MIME Decoder image
+   docker build -f docker/Dockerfile.mime-decoder \
+     -t europe-west1-docker.pkg.dev/YOUR_PROJECT_ID/jedouscale-repo/mime-decoder:latest \
+     --target mime-decoder .
+
+   # Authenticate Docker
+   gcloud auth configure-docker europe-west1-docker.pkg.dev
+
+   # Push image
+   docker push europe-west1-docker.pkg.dev/YOUR_PROJECT_ID/jedouscale-repo/mime-decoder:latest
+   ```
+
+#### Deploy Infrastructure
+
+```bash
+cd infra/terraform
+
+# Initialize Terraform
+terraform init
+
+# Review plan
+terraform plan
+
+# Apply configuration
+terraform apply
+```
+
+This will create:
+- Cloud Storage bucket for uploads
+- Eventarc trigger
+- MIME Decoder Cloud Run service
+- Service accounts and IAM permissions
+- (Optional) Monitoring alert policies
+
+#### Testing the Eventarc Integration
+
+1. **Upload a test file to Cloud Storage:**
+   ```bash
+   echo "test content" | gsutil cp - gs://$(terraform output -raw uploads_bucket_name)/test.txt
+   ```
+
+2. **Verify event was received:**
+   ```bash
+   # Check MIME Decoder logs
+   gcloud logging read \
+     'resource.type="cloud_run_revision"
+      resource.labels.service_name="mime-decoder"
+      jsonPayload.message="CloudEvent received"' \
+     --limit=5 \
+     --format=json
+   ```
+
+3. **Check Eventarc metrics:**
+   ```bash
+   # View event delivery metrics
+   gcloud monitoring timeseries list \
+     --filter='metric.type="eventarc.googleapis.com/trigger/delivery_success_count"' \
+     --format="table(metric.type, points)"
+   ```
+
+4. **Test retry mechanism:**
+   ```bash
+   # Temporarily break MIME Decoder to trigger retries
+   # (This requires modifying the service to return 5xx errors)
+   # Upload a file and observe retry attempts in logs
+
+   gcloud logging read \
+     'resource.type="eventarc.googleapis.com/trigger"
+      severity>=ERROR' \
+     --limit=10
+   ```
+
+### Monitoring and Alerting
+
+Alert policies are defined in `alerts.tf` (disabled by default).
+
+To enable monitoring alerts:
+
+```bash
+terraform apply \
+  -var="enable_monitoring_alerts=true" \
+  -var="alert_email=devops@example.com"
+```
+
+This creates three alert policies:
+1. **High Failure Rate**: Alerts when >10% of events fail
+2. **High Latency**: Alerts when p95 latency >30 seconds
+3. **No Events**: Alerts when no events received for >1 hour
+
+See `monitoring.md` for detailed monitoring configuration.
+
+### Configuration Variables for Eventarc
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `mime_decoder_service_name` | `mime-decoder` | Name of MIME Decoder Cloud Run service |
+| `eventarc_trigger_name` | `storage-upload-trigger` | Name of Eventarc trigger |
+| `event_filter_prefix` | `""` (all files) | Optional prefix filter for events |
+| `enable_monitoring_alerts` | `false` | Enable alert policies |
+| `alert_email` | `""` | Email for alert notifications |
+| `uploads_bucket_lifecycle_days` | `90` | Days before file deletion |
+
+### Troubleshooting Eventarc
+
+**Events not being delivered:**
+```bash
+# Check Eventarc trigger status
+gcloud eventarc triggers describe storage-upload-trigger \
+  --location=europe-west1
+
+# Check service account permissions
+gcloud projects get-iam-policy YOUR_PROJECT_ID \
+  --flatten="bindings[].members" \
+  --filter="bindings.members:eventarc-trigger-sa"
+```
+
+**MIME Decoder errors:**
+```bash
+# View recent errors
+gcloud logging read \
+  'resource.type="cloud_run_revision"
+   resource.labels.service_name="mime-decoder"
+   severity>=ERROR' \
+  --limit=20
+```
+
+**Failed events after retries:**
+```bash
+# Find events that need manual reprocessing
+gcloud logging read \
+  'resource.type="cloud_run_revision"
+   resource.labels.service_name="mime-decoder"
+   jsonPayload.manual_reprocessing_required=true' \
+  --format=json
+```
+
+### Security Considerations
+
+1. **Service Account Permissions**:
+   - Eventarc trigger SA has minimal permissions (Cloud Run Invoker only)
+   - NO Cloud Storage read/write permissions for Eventarc SA
+   - MIME Decoder uses compute default SA for Cloud Storage access
+
+2. **Authentication**:
+   - Eventarc invokes MIME Decoder with service account authentication
+   - MIME Decoder can optionally require authentication (set `allow_unauthenticated=false`)
+
+3. **Data Locality**:
+   - All resources deployed in EU region (europe-west1)
+   - Events and data never leave configured region
+   - Complies with GDPR data residency requirements
+
 ## Future Enhancements
 
-This Terraform configuration is phase 1. Future additions will include:
+Future additions will include:
 
-- **Cloud Storage buckets** for file uploads
 - **BigQuery datasets** for analytics
+- **Transformer Services** for text extraction from various formats
+- **Tabular Service** for schema inference and data loading
 - **Cloud SQL** or **Firestore** for metadata storage
-- **Cloud Functions** for ML model inference
 - **VPC configuration** for private networking
-- **Custom service accounts** with fine-grained IAM
-- **Cloud Monitoring** alerts and dashboards
 - **Cloud CDN** for static assets
 
 ## Troubleshooting

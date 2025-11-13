@@ -85,3 +85,41 @@ variable "uploads_bucket_lifecycle_days" {
   type        = number
   default     = 90
 }
+
+# Eventarc Configuration
+variable "mime_decoder_service_name" {
+  description = "The name of the MIME Decoder Cloud Run service"
+  type        = string
+  default     = "mime-decoder"
+}
+
+variable "eventarc_trigger_name" {
+  description = "The name of the Eventarc trigger for Cloud Storage events"
+  type        = string
+  default     = "storage-upload-trigger"
+}
+
+variable "event_filter_prefix" {
+  description = "Optional prefix filter for Cloud Storage objects (e.g., 'uploads/'). Leave empty to process all files."
+  type        = string
+  default     = ""
+}
+
+# Monitoring and Alerting Configuration
+variable "enable_monitoring_alerts" {
+  description = "Enable Cloud Monitoring alert policies for Eventarc"
+  type        = bool
+  default     = false
+}
+
+variable "alert_email" {
+  description = "Email address for monitoring alerts. Leave empty to disable email notifications."
+  type        = string
+  default     = ""
+}
+
+variable "enable_monitoring_dashboard" {
+  description = "Create Cloud Monitoring dashboard for Eventarc integration"
+  type        = bool
+  default     = true
+}

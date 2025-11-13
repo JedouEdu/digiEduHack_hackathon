@@ -27,7 +27,7 @@ MIME Decoder Cloud Run service
     ↓
 (on success) Processing continues
     ↓
-(on failure after retries) Dead Letter Queue (Pub/Sub)
+(on failure after retries) Error logged with full context
 ```
 
 
@@ -35,8 +35,7 @@ MIME Decoder Cloud Run service
 
 1. **Eventarc Trigger**: Subscribes to Cloud Storage events and routes to MIME Decoder
 2. **Service Account**: Identity for Eventarc to invoke Cloud Run
-3. **Dead Letter Topic**: Pub/Sub topic for failed events
-4. **Event Filters**: Configuration to select relevant files
+3. **Event Filters**: Configuration to select relevant files
 
 ## Terraform Configuration
 
@@ -46,7 +45,7 @@ MIME Decoder Cloud Run service
 infra/terraform/
 ├── eventarc.tf              # Eventarc trigger and related resources
 ├── variables.tf             # Variables for configuration
-├── outputs.tf               # Outputs for trigger and topic
+├── outputs.tf               # Outputs for trigger
 └── iam.tf                   # Service account and permissions
 ```
 
@@ -76,12 +75,6 @@ resource "google_eventarc_trigger" "storage_trigger" {
   }
 
   service_account = google_service_account.eventarc_trigger.email
-
-  transport {
-    pubsub {
-      topic = google_pubsub_topic.dead_letter.id
-    }
-  }
 }
 ```
 
@@ -109,26 +102,6 @@ resource "google_project_iam_member" "eventarc_receiver" {
 }
 ```
 
-### Dead Letter Queue Configuration
-
-```hcl
-resource "google_pubsub_topic" "dead_letter" {
-  name    = "${var.project_name}-eventarc-dlq"
-  project = var.project_id
-
-  message_retention_duration = "604800s"  # 7 days
-}
-
-resource "google_pubsub_subscription" "dead_letter_sub" {
-  name    = "${var.project_name}-eventarc-dlq-sub"
-  topic   = google_pubsub_topic.dead_letter.name
-  project = var.project_id
-
-  ack_deadline_seconds = 600
-  retain_acked_messages = true
-  message_retention_duration = "604800s"
-}
-```
 
 
 ## Event Payload Format
@@ -177,7 +150,7 @@ The MIME Decoder receives the event as an HTTP POST request with the CloudEvents
    - Retry 3: After 40 seconds
    - Retry 4: After 80 seconds
    - Retry 5: After 160 seconds (max)
-3. **Dead Letter Queue**: After 5 failed attempts, event is published to DLQ
+3. **Final Failure**: After 5 failed attempts, error is logged with full context
 
 ### Error Scenarios
 
@@ -187,7 +160,21 @@ The MIME Decoder receives the event as an HTTP POST request with the CloudEvents
 | MIME Decoder validation error | 400-499 | No retry, log error |
 | MIME Decoder temporary error | 500-599 | Retry with backoff |
 | MIME Decoder timeout | - | Retry with backoff |
-| All retries exhausted | - | Send to DLQ |
+| All retries exhausted | - | Log error with full context |
+
+### Error Logging
+
+When all retry attempts are exhausted, Eventarc logs a structured error entry to Cloud Logging with:
+- **Event ID**: Unique identifier for correlation
+- **Bucket**: Cloud Storage bucket name
+- **Object Name**: File path
+- **Content Type**: MIME type
+- **File Size**: Size in bytes
+- **Error Message**: Last error received from MIME Decoder
+- **Retry Count**: Total number of attempts made
+- **Timestamps**: Initial attempt and final failure time
+
+This information enables manual file reprocessing or debugging without requiring a Dead Letter Queue.
 
 
 ## Monitoring and Observability
@@ -232,9 +219,8 @@ All event deliveries are logged to Cloud Logging with:
 Recommended Cloud Monitoring alerts:
 
 1. **High Failure Rate**: Alert when delivery_failure_count > 10% of event_count over 5 minutes
-2. **Dead Letter Queue Growth**: Alert when DLQ subscription has > 100 unacked messages
-3. **High Latency**: Alert when delivery_latency p95 > 30 seconds
-4. **No Events**: Alert when event_count = 0 for > 1 hour (indicates potential issue)
+2. **High Latency**: Alert when delivery_latency p95 > 30 seconds
+3. **No Events**: Alert when event_count = 0 for > 1 hour (indicates potential issue)
 
 ## Security Considerations
 
@@ -265,14 +251,12 @@ The Eventarc trigger service account has minimal permissions:
 1. **Cloud Storage bucket** must exist before creating the trigger
 2. **MIME Decoder Cloud Run service** must be deployed
 3. **Eventarc API** must be enabled in the GCP project
-4. **Pub/Sub API** must be enabled for dead letter queue
 
 ### Terraform Deployment Steps
 
 1. Enable required APIs:
    ```bash
    gcloud services enable eventarc.googleapis.com
-   gcloud services enable pubsub.googleapis.com
    ```
 
 2. Apply Terraform configuration:
@@ -301,4 +285,15 @@ The Eventarc trigger service account has minimal permissions:
    ```
 
 3. Verify metrics in Cloud Monitoring console
+
+## Known Limitations
+
+**No Dead Letter Queue for Failed Events**: After all retry attempts are exhausted (5 retries with exponential backoff), failed events are logged with full context but not queued for automatic reprocessing. This design choice prioritizes simplicity and rapid deployment for the MVP phase.
+
+For manual reprocessing of failed files:
+1. Query Cloud Logging for failed events
+2. Extract bucket and object name from error logs
+3. Re-upload or re-trigger processing manually
+
+**Production Improvement**: For production deployments handling large volumes, consider adding a Dead Letter Queue (Pub/Sub topic) to enable automatic reprocessing workflows and better failure management.
 
