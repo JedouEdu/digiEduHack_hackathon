@@ -38,9 +38,9 @@ class Settings(BaseSettings):
 
     # Archive Extraction Configuration
     ENABLE_ARCHIVE_EXTRACTION: bool = True
-    MAX_ARCHIVE_SIZE_MB: int = 500
+    MAX_ARCHIVE_SIZE_MB: int = 1024
     MAX_FILES_PER_ARCHIVE: int = 100
-    MAX_EXTRACTED_FILE_SIZE_MB: int = 50
+    MAX_EXTRACTED_FILE_SIZE_MB: int = 500
     UPLOADS_BUCKET: str = ""  # GCS bucket name for uploads
 
     @property

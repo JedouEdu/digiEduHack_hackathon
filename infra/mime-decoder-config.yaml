@@ -45,12 +45,12 @@ spec:
         - name: ENABLE_ARCHIVE_EXTRACTION
           value: 'true'
         - name: MAX_ARCHIVE_SIZE_MB
-          value: '500'
+          value: '1024'
         - name: MAX_FILES_PER_ARCHIVE
           value: '100'
         - name: MAX_EXTRACTED_FILE_SIZE_MB
-          value: '50'
+          value: '500'
         resources:
           limits:
-            cpu: '1'
-            memory: 512Mi
+            cpu: '2'
+            memory: 2Gi
