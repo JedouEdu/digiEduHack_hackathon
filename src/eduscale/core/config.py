@@ -36,6 +36,13 @@ class Settings(BaseSettings):
     BACKEND_UPDATE_TIMEOUT: int = 5  # seconds for Backend status updates
     LOG_LEVEL: str = "INFO"
 
+    # Archive Extraction Configuration
+    ENABLE_ARCHIVE_EXTRACTION: bool = True
+    MAX_ARCHIVE_SIZE_MB: int = 500
+    MAX_FILES_PER_ARCHIVE: int = 100
+    MAX_EXTRACTED_FILE_SIZE_MB: int = 50
+    UPLOADS_BUCKET: str = ""  # GCS bucket name for uploads
+
     @property
     def allowed_mime_types(self) -> list[str] | None:
         """Parse ALLOWED_UPLOAD_MIME_TYPES into a list."""
@@ -52,6 +59,16 @@ class Settings(BaseSettings):
     def direct_upload_threshold_bytes(self) -> int:
         """Convert DIRECT_UPLOAD_SIZE_THRESHOLD_MB to bytes."""
         return self.DIRECT_UPLOAD_SIZE_THRESHOLD_MB * 1024 * 1024
+
+    @property
+    def max_archive_size_bytes(self) -> int:
+        """Convert MAX_ARCHIVE_SIZE_MB to bytes."""
+        return self.MAX_ARCHIVE_SIZE_MB * 1024 * 1024
+
+    @property
+    def max_extracted_file_size_bytes(self) -> int:
+        """Convert MAX_EXTRACTED_FILE_SIZE_MB to bytes."""
+        return self.MAX_EXTRACTED_FILE_SIZE_MB * 1024 * 1024
 
 
 # Singleton settings instance
