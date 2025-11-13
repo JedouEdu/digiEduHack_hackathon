@@ -12,7 +12,6 @@ When files are uploaded to Cloud Storage, Eventarc automatically triggers the MI
 - **Event Trigger**: Configuration that subscribes to specific events and routes them to a target service
 
 - **Event Payload**: JSON data containing file metadata (bucket, object name, content type, size)
-- **Dead Letter Queue**: Storage for events that fail to be delivered after retries
 - **Service Account**: Identity used by Eventarc to invoke Cloud Run services
 - **Event Filter**: Criteria for selecting which events to process (e.g., specific bucket or file prefix)
 
@@ -40,8 +39,8 @@ When files are uploaded to Cloud Storage, Eventarc automatically triggers the MI
 
 1. WHEN an OBJECT_FINALIZE event is emitted, THE Eventarc SHALL deliver the event to the MIME Decoder at least once
 2. WHEN the MIME Decoder returns an error response, THE Eventarc SHALL retry delivery with exponential backoff
-3. THE Eventarc SHALL retry failed deliveries up to a configured maximum number of attempts
-4. WHEN all retry attempts are exhausted, THE Eventarc SHALL route the event to a dead letter queue
+3. THE Eventarc SHALL retry failed deliveries up to a configured maximum number of attempts (minimum 5 retries)
+4. WHEN all retry attempts are exhausted, THE Eventarc SHALL log the failure with full event context to Cloud Logging
 5. THE Eventarc SHALL preserve event ordering for events from the same file
 
 
@@ -72,18 +71,18 @@ When files are uploaded to Cloud Storage, Eventarc automatically triggers the MI
 5. THE service account SHALL be created and managed via Terraform
 
 
-### Requirement 5: Dead Letter Queue Configuration
+### Requirement 5: Error Logging
 
-**User Story:** As a DevOps engineer, I want fa
-iled events captured, so that I can investigate and reprocess them.
+**User Story:** As a DevOps engineer, I want failed events logged with full context, so that I can investigate and manually reprocess them.
 
 #### Acceptance Criteria
 
-1. THE Eventarc Trigger SHALL configure a Pub/Sub topic as the dead letter queue
-2. WHEN an event fails after all retry attempts, THE Eventarc SHALL publish the event to the dead letter topic
-3. THE dead letter message SHALL include the original event payload
-4. THE dead letter message SHALL include error details and retry history
-5. THE dead letter topic SHALL be created and managed via Terraform
+1. WHEN an event fails after all retry attempts, THE Eventarc SHALL log a structured error entry to Cloud Logging
+2. THE error log SHALL include the event ID for correlation
+3. THE error log SHALL include the bucket name and object name
+4. THE error log SHALL include the content type and file size
+5. THE error log SHALL include the error message received from MIME Decoder
+6. THE error log SHALL include the total retry count and timestamps
 
 
 ### Requirement 6: Event Filtering
@@ -124,8 +123,7 @@ iled events captured, so that I can investigate and reprocess them.
 1. THE Eventarc Trigger SHALL be created in the EU region
 2. THE Eventarc Trigger SHALL only process events from EU-region Cloud Storage buckets
 3. THE MIME Decoder Cloud Run service SHALL be deployed in the EU region
-4. THE dead letter Pub/Sub topic SHALL be created in the EU region
-5. THE region SHALL be configurable via Terraform variables
+4. THE region SHALL be configurable via Terraform variables
 
 ### Requirement 9: Terraform Configuration Structure
 
@@ -135,6 +133,6 @@ iled events captured, so that I can investigate and reprocess them.
 
 1. THE Eventarc configuration SHALL be defined in infra/terraform/eventarc.tf
 2. THE Terraform configuration SHALL use variables for all configurable parameters
-3. THE Terraform configuration SHALL output the trigger name and dead letter topic name
+3. THE Terraform configuration SHALL output the trigger name
 4. THE Terraform configuration SHALL depend on Cloud Storage bucket and MIME Decoder service resources
 5. THE Terraform configuration SHALL use consistent naming conventions with other infrastructure components
