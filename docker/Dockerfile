@@ -15,6 +15,7 @@ FROM python:3.11-slim
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app/src \
     PORT=8080
 
 # Create non-root user
@@ -39,4 +40,4 @@ USER appuser
 EXPOSE ${PORT}
 
 # Run the application
-CMD uvicorn eduscale.main:app --host 0.0.0.0 --port ${PORT}
+CMD ["sh", "-c", "uvicorn eduscale.main:app --host 0.0.0.0 --port ${PORT}"]
