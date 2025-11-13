@@ -77,3 +77,63 @@ The MIME Decoder operates as part of the pipeline: Cloud Storage â†’ Eventarc â†
 6. THE MIME Decoder SHALL set a timeout of 300 seconds for Transformer calls
 7. WHEN the Transformer times out, THE MIME Decoder SHALL return HTTP 500 to trigger Eventarc retry
 
+
+
+### Requirement 5: Status Propagation
+
+**User Story:** As a product manager, I
+ want processing status returned to the Backend, so that users can see file processing progress.
+
+#### Acceptance Criteria
+
+1. WHEN the Transformer returns a status, THE MIME Decoder SHALL forward the status to the Backend service
+2. THE MIME Decoder SHALL call the Backend API endpoint with file_id, status, and processing details
+3. WHEN the Backend call succeeds, THE MIME Decoder SHALL log the status update
+4. WHEN the Backend call fails, THE MIME Decoder SHALL log the error but still return success to Eventarc
+5. THE MIME Decoder SHALL not block on Backend status updates (fire-and-forget pattern)
+
+### Requirement 6: Error Handling and Logging
+
+**User Story:** As a DevOps engineer, I want comprehensive error logging, so that I can debug processing failures.
+
+#### Acceptance Criteria
+
+1. WHEN any error occurs, THE MIME Decoder SHALL log the error with full context (file_id, region_id, error message, stack trace)
+2. THE MIME Decoder SHALL use structured logging with JSON format
+3. THE MIME Decoder SHALL log at appropriate levels (INFO for success, WARNING for retryable errors, ERROR for failures)
+4. WHEN a validation error occurs (400), THE MIME Decoder SHALL return HTTP 400 to prevent Eventarc retries
+5. WHEN a processing error occurs (500), THE MIME Decoder SHALL return HTTP 500 to trigger Eventarc retries
+6. THE MIME Decoder SHALL include correlation IDs in all logs for request tracing
+
+
+
+### Requirement 7: Health Check Endpoint
+
+**User Story:** As a DevOps engineer, I want health check endpoints, so that Cloud Run can monitor service health.
+
+#### Acceptance Criteria
+
+1. THE MIME Decoder SHALL expose a GET /health endpoint
+2. WHEN the service is healthy, THE /health endpoint SHALL return HTTP 200 with status "healthy"
+3. THE /health endpoint SHALL check connectivity to Transformer service
+4. WHEN dependencies are unavailable, THE /health endpoint SHALL return HTTP 503
+5. THE /health endpoint SHALL respond within 5 seconds
+
+### Requirement 8: Configuration Management
+
+**User Story:** As a DevOps engineer, I want configuration via environment variables, so that I can deploy to different environments.
+
+#### Acceptance Criteria
+
+1. THE MIME Decoder SHALL read TRANSFORMER_SERVICE_URL from environment variables
+2. THE MIME Decoder SHALL read BACKEND_SERVICE_URL from environment variables
+3. THE MIME Decoder SHALL read GCP_PROJECT_ID and GCP_REGION from environment variables
+4. THE MIME Decoder SHALL read LOG_LEVEL from environment variables with default "INFO"
+5. THE MIME Decoder SHALL read REQUEST_TIMEOUT from environment variables with default 300 seconds
+6. THE configuration SHALL be validated at startup and log errors for missing required variables
+
+
+
+### Requirement 9: Cloud Run Deployment
+
+**User Story:** As a DevOps engineer, I want the MIME Decoder dep
