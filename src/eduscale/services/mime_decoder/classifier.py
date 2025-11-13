@@ -33,6 +33,7 @@ MIME_CATEGORY_MAP: Dict[str, FileCategory] = {
     "text/plain": FileCategory.TEXT,
     "text/markdown": FileCategory.TEXT,
     "text/html": FileCategory.TEXT,
+    "application/json": FileCategory.TEXT,  # .json
     "application/pdf": FileCategory.TEXT,
     "application/rtf": FileCategory.TEXT,
     # Microsoft Office formats
