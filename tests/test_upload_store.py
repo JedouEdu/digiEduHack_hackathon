@@ -4,7 +4,7 @@ from datetime import datetime
 
 import pytest
 
-from eduscale.storage.upload_store import UploadRecord, UploadStore
+from eduscale.storage.upload_store import UploadRecord, UploadStatus, UploadStore
 
 
 @pytest.fixture
@@ -24,6 +24,7 @@ def sample_record():
         size_bytes=1024,
         storage_backend="local",
         storage_path="data/uploads/raw/test-uuid-123/test.csv",
+        status=UploadStatus.COMPLETED,
         created_at=datetime.utcnow(),
     )
 
@@ -61,6 +62,7 @@ def test_list_all_with_records(upload_store):
         size_bytes=100,
         storage_backend="local",
         storage_path="path1",
+        status=UploadStatus.COMPLETED,
         created_at=datetime.utcnow(),
     )
     record2 = UploadRecord(
@@ -71,6 +73,7 @@ def test_list_all_with_records(upload_store):
         size_bytes=200,
         storage_backend="local",
         storage_path="path2",
+        status=UploadStatus.COMPLETED,
         created_at=datetime.utcnow(),
     )
 
@@ -96,6 +99,7 @@ def test_overwrite_record(upload_store, sample_record):
         size_bytes=2048,
         storage_backend="gcs",
         storage_path="gs://bucket/path",
+        status=UploadStatus.PENDING,
         created_at=datetime.utcnow(),
     )
     upload_store.create(new_record)

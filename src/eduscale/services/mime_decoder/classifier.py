@@ -2,13 +2,14 @@
 MIME type classifier for file categorization.
 
 Classifies files into categories based on their MIME type:
-- text: Plain text, markdown, HTML, JSON, CSV, TSV
+- text: Plain text, markdown, HTML, JSON, CSV, TSV, RTF
 - pdf: PDF documents
-- docx: Word documents, PowerPoint presentations (Office formats)
-- excel: Binary spreadsheet formats (Excel .xls/.xlsx, ODS)
+- docx: Word documents (.doc, .docx)
+- odf: OpenDocument formats (.odt, .odp, .ods)
+- excel: Binary spreadsheet formats (Excel .xls/.xlsx)
 - audio: Audio files and voice recordings
 - archive: ZIP, TAR, GZIP archives
-- other: Unknown or unsupported file types (including images)
+- other: Unknown or unsupported file types (including images, PowerPoint)
 """
 
 from enum import Enum
@@ -21,6 +22,7 @@ class FileCategory(str, Enum):
     TEXT = "text"
     PDF = "pdf"
     DOCX = "docx"
+    ODF = "odf"
     EXCEL = "excel"
     AUDIO = "audio"
     ARCHIVE = "archive"
@@ -38,21 +40,19 @@ MIME_CATEGORY_MAP: Dict[str, FileCategory] = {
     "application/octet-stream": FileCategory.TEXT,  # Generic binary (often used for .md files)
     # PDF formats (separate category)
     "application/pdf": FileCategory.PDF,
-    # Microsoft Office Word/PowerPoint formats (separate category)
+    # Microsoft Office Word formats (separate category)
     "application/msword": FileCategory.DOCX,  # .doc
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": FileCategory.DOCX,  # .docx
-    "application/vnd.ms-powerpoint": FileCategory.DOCX,  # .ppt
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation": FileCategory.DOCX,  # .pptx
-    # OpenDocument formats
-    "application/vnd.oasis.opendocument.text": FileCategory.DOCX,  # .odt
-    "application/vnd.oasis.opendocument.presentation": FileCategory.DOCX,  # .odp
+    # OpenDocument formats (separate category)
+    "application/vnd.oasis.opendocument.text": FileCategory.ODF,  # .odt
+    "application/vnd.oasis.opendocument.presentation": FileCategory.ODF,  # .odp
+    "application/vnd.oasis.opendocument.spreadsheet": FileCategory.ODF,  # .ods
     # CSV/TSV formats (plain text tabular data)
     "text/csv": FileCategory.TEXT,  # .csv
     "text/tab-separated-values": FileCategory.TEXT,  # .tsv
     # Excel/Spreadsheet formats (binary/complex formats)
     "application/vnd.ms-excel": FileCategory.EXCEL,  # .xls
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": FileCategory.EXCEL,  # .xlsx
-    "application/vnd.oasis.opendocument.spreadsheet": FileCategory.EXCEL,  # .ods
 
     # Audio formats
     "audio/mpeg": FileCategory.AUDIO,  # .mp3

@@ -4,9 +4,21 @@
 
 The File Upload Module extends the EduScale Engine with a dual-mode file upload system that supports both Google Cloud Storage (GCS) for production deployments and local filesystem storage for development. The design follows a modular architecture with clear separation between HTTP handling, storage backends, and session management.
 
-The system implements a single-request upload pattern where the client sends the file and metadata together. The server validates the request, generates a unique file ID, routes the file to the appropriate storage backend (GCS or local), and returns the upload result.
+The system implements a **dual-path upload strategy** based on file size to work around Cloud Run's 32 MB request body limit:
 
-This design provides the simplest possible client experience while the server handles validation, storage routing, and tracking transparently.
+**Path 1: Direct Upload (≤31 MB)**
+- Client sends file and metadata in a single multipart/form-data request
+- Server validates, streams to storage, and returns result
+- Simple, synchronous flow for small files
+
+**Path 2: Signed URL Upload (>31 MB)**
+- Client creates upload session with metadata only (POST /api/v1/upload/sessions)
+- Server generates GCS V4 signed URL with 15-minute expiration
+- Client uploads file directly to GCS using signed URL (bypassing Cloud Run)
+- Client finalizes upload by calling completion endpoint (POST /api/v1/upload/complete)
+- Eliminates proxy overhead and Cloud Run size limitations
+
+This design optimizes for simplicity with small files while enabling efficient large file uploads without infrastructure constraints.
 
 ## Architecture
 
@@ -17,7 +29,7 @@ graph TB
     Client[Web Browser/Client]
     UI[Upload UI Page]
     API[FastAPI Routes]
-    SessionMgr[Session Manager]
+    UploadStore[Upload Store]
     StorageFactory[Storage Backend Factory]
     GCSBackend[GCS Storage Backend]
     LocalBackend[Local Storage Backend]
@@ -26,19 +38,20 @@ graph TB
     
     Client --> UI
     UI --> API
-    API --> SessionMgr
-    SessionMgr --> StorageFactory
+    API --> UploadStore
+    API --> StorageFactory
     StorageFactory --> GCSBackend
     StorageFactory --> LocalBackend
     GCSBackend --> GCS
     LocalBackend --> LocalFS
     
-    Client -->|Multipart POST| API
+    Client -->|Small File: Multipart POST| API
+    Client -->|Large File: Direct PUT| GCS
 ```
 
-### Request Flow
+### Request Flows
 
-**Single-Request Upload (Both GCS and Local Mode):**
+**Flow 1: Direct Upload for Small Files (≤31 MB)**
 
 1. Client calls `POST /api/v1/upload` with multipart/form-data containing file and region_id
 2. API validates request (size, MIME type, region_id)
@@ -48,6 +61,23 @@ graph TB
    - **Local Mode**: API streams file to local filesystem
 5. API records upload metadata in Upload Store
 6. API returns success response with file_id and storage information
+
+**Flow 2: Signed URL Upload for Large Files (>31 MB, GCS only)**
+
+1. Client calls `POST /api/v1/upload/sessions` with JSON: {region_id, file_name, file_size_bytes, content_type}
+2. API validates metadata (size, MIME type, region_id)
+3. API generates unique file_id (UUID4)
+4. API generates GCS V4 signed URL with:
+   - 15-minute expiration
+   - Content-Type constraint
+   - Size constraint
+5. API creates pending upload record in Upload Store
+6. API returns {file_id, upload_method: "signed_url", signed_url, target_path, expires_at}
+7. Client uploads file directly to GCS using PUT to signed_url
+8. Client calls `POST /api/v1/upload/complete` with {file_id}
+9. API verifies file exists in GCS
+10. API updates upload record to completed status
+11. API returns upload metadata
 
 ## Components and Interfaces
 
@@ -66,6 +96,7 @@ class Settings(BaseSettings):
     # Upload Constraints
     MAX_UPLOAD_MB: int = 50
     ALLOWED_UPLOAD_MIME_TYPES: str = ""  # Comma-separated, empty = allow all
+    DIRECT_UPLOAD_SIZE_THRESHOLD_MB: int = 31  # Files larger than this use signed URLs
     
     @property
     def allowed_mime_types(self) -> list[str] | None:
@@ -78,15 +109,40 @@ class Settings(BaseSettings):
     def max_upload_bytes(self) -> int:
         """Convert MAX_UPLOAD_MB to bytes."""
         return self.MAX_UPLOAD_MB * 1024 * 1024
+    
+    @property
+    def direct_upload_threshold_bytes(self) -> int:
+        """Convert DIRECT_UPLOAD_SIZE_THRESHOLD_MB to bytes."""
+        return self.DIRECT_UPLOAD_SIZE_THRESHOLD_MB * 1024 * 1024
 ```
 
 ### 2. Data Models (`eduscale.models.upload`)
 
-Define Pydantic models for response validation:
+Define Pydantic models for request/response validation:
 
 ```python
 from pydantic import BaseModel
 from datetime import datetime
+from typing import Optional, Literal
+
+class CreateSessionRequest(BaseModel):
+    """Request model for creating upload session."""
+    region_id: str
+    file_name: str
+    file_size_bytes: int
+    content_type: str
+
+class CreateSessionResponse(BaseModel):
+    """Response model for upload session creation."""
+    file_id: str
+    upload_method: Literal["direct", "signed_url"]
+    signed_url: Optional[str] = None
+    target_path: str
+    expires_at: Optional[datetime] = None
+
+class CompleteUploadRequest(BaseModel):
+    """Request model for completing signed URL upload."""
+    file_id: str
 
 class UploadResponse(BaseModel):
     """Response model for file upload."""
@@ -102,12 +158,18 @@ class UploadResponse(BaseModel):
 
 ### 3. Upload Store (`eduscale.storage.upload_store`)
 
-In-memory upload tracking with future database migration path:
+In-memory upload tracking with status management for pending and completed uploads:
 
 ```python
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, Optional
+from enum import Enum
+
+class UploadStatus(str, Enum):
+    """Upload status enumeration."""
+    PENDING = "pending"  # Session created, awaiting file upload
+    COMPLETED = "completed"  # File uploaded and verified
 
 @dataclass
 class UploadRecord:
@@ -119,7 +181,9 @@ class UploadRecord:
     size_bytes: int
     storage_backend: str
     storage_path: str
+    status: UploadStatus
     created_at: datetime
+    completed_at: Optional[datetime] = None
 
 class UploadStore:
     """In-memory store for upload records."""
@@ -134,6 +198,13 @@ class UploadStore:
     def get(self, file_id: str) -> Optional[UploadRecord]:
         """Retrieve an upload record by file_id."""
         return self._uploads.get(file_id)
+    
+    def update_status(self, file_id: str, status: UploadStatus, completed_at: Optional[datetime] = None) -> None:
+        """Update upload record status."""
+        if file_id in self._uploads:
+            self._uploads[file_id].status = status
+            if completed_at:
+                self._uploads[file_id].completed_at = completed_at
     
     def list_all(self) -> list[UploadRecord]:
         """List all upload records."""
@@ -192,11 +263,11 @@ class StorageBackend(ABC):
 
 ### 5. GCS Storage Backend (`eduscale.storage.gcs`)
 
-Google Cloud Storage implementation:
+Google Cloud Storage implementation with signed URL generation:
 
 ```python
 from google.cloud import storage
-from datetime import timedelta
+from datetime import datetime, timedelta
 from eduscale.core.config import settings
 from eduscale.storage.base import StorageBackend
 
@@ -223,6 +294,44 @@ class GCSStorageBackend(StorageBackend):
         safe_name = self._sanitize_filename(file_name)
         blob_path = f"raw/{file_id}/{safe_name}"
         return f"gs://{settings.GCS_BUCKET_NAME}/{blob_path}"
+    
+    def generate_signed_upload_url(
+        self,
+        file_id: str,
+        file_name: str,
+        content_type: str,
+        size_bytes: int,
+        expiration_minutes: int = 15
+    ) -> tuple[str, str]:
+        """Generate V4 signed URL for direct upload.
+        
+        Returns:
+            Tuple of (signed_url, blob_path)
+        """
+        bucket = self._get_bucket()
+        
+        safe_name = self._sanitize_filename(file_name)
+        blob_path = f"raw/{file_id}/{safe_name}"
+        blob = bucket.blob(blob_path)
+        
+        # Generate V4 signed URL for PUT
+        signed_url = blob.generate_signed_url(
+            version="v4",
+            expiration=timedelta(minutes=expiration_minutes),
+            method="PUT",
+            content_type=content_type,
+            headers={"Content-Type": content_type}
+        )
+        
+        return signed_url, blob_path
+    
+    def check_file_exists(self, file_id: str, file_name: str) -> bool:
+        """Check if file exists in GCS."""
+        bucket = self._get_bucket()
+        safe_name = self._sanitize_filename(file_name)
+        blob_path = f"raw/{file_id}/{safe_name}"
+        blob = bucket.blob(blob_path)
+        return blob.exists()
     
     async def store_file(
         self,
@@ -342,18 +451,24 @@ def get_storage_backend() -> StorageBackend:
 
 ### 8. Upload Routes (`eduscale.api.v1.routes_upload`)
 
-FastAPI router for upload endpoint:
+FastAPI router with three endpoints for upload management:
 
 ```python
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Body
 from uuid import uuid4
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 
 from eduscale.core.config import settings
-from eduscale.models.upload import UploadResponse
+from eduscale.models.upload import (
+    UploadResponse, 
+    CreateSessionRequest, 
+    CreateSessionResponse,
+    CompleteUploadRequest
+)
 from eduscale.storage.factory import get_storage_backend
-from eduscale.storage.upload_store import upload_store, UploadRecord
+from eduscale.storage.upload_store import upload_store, UploadRecord, UploadStatus
+from eduscale.storage.gcs import gcs_backend
 
 router = APIRouter(prefix="/api/v1", tags=["upload"])
 logger = logging.getLogger(__name__)
@@ -363,21 +478,87 @@ async def upload_file(
     file: UploadFile = File(...),
     region_id: str = Form(...)
 ):
-    """Upload a file with metadata."""
+    """Direct upload for small files (≤31 MB)."""
     # Validate region_id
     # Validate file size
     # Validate MIME type
     # Generate file_id
     # Get storage backend
     # Stream file to backend (GCS or local)
-    # Create upload record
+    # Create upload record with status=COMPLETED
     # Return response
+    pass
+
+@router.post("/upload/sessions", response_model=CreateSessionResponse, status_code=201)
+async def create_upload_session(request: CreateSessionRequest = Body(...)):
+    """Create upload session for large files (>31 MB)."""
+    # Validate region_id
+    # Validate file_size_bytes
+    # Validate content_type
+    # Generate file_id
+    
+    # Check if file size requires signed URL
+    if request.file_size_bytes <= settings.direct_upload_threshold_bytes:
+        # Return direct upload method
+        backend = get_storage_backend()
+        target_path = backend.get_target_path(request.file_id, request.file_name)
+        return CreateSessionResponse(
+            file_id=file_id,
+            upload_method="direct",
+            target_path=target_path
+        )
+    
+    # Generate signed URL for large files (GCS only)
+    if settings.STORAGE_BACKEND != "gcs":
+        raise HTTPException(400, "Large file uploads only supported with GCS backend")
+    
+    signed_url, blob_path = gcs_backend.generate_signed_upload_url(
+        file_id=file_id,
+        file_name=request.file_name,
+        content_type=request.content_type,
+        size_bytes=request.file_size_bytes,
+        expiration_minutes=15
+    )
+    
+    # Create pending upload record
+    upload_record = UploadRecord(
+        file_id=file_id,
+        region_id=request.region_id,
+        file_name=request.file_name,
+        content_type=request.content_type,
+        size_bytes=request.file_size_bytes,
+        storage_backend="gcs",
+        storage_path=f"gs://{settings.GCS_BUCKET_NAME}/{blob_path}",
+        status=UploadStatus.PENDING,
+        created_at=datetime.utcnow()
+    )
+    upload_store.create(upload_record)
+    
+    expires_at = datetime.utcnow() + timedelta(minutes=15)
+    
+    return CreateSessionResponse(
+        file_id=file_id,
+        upload_method="signed_url",
+        signed_url=signed_url,
+        target_path=f"gs://{settings.GCS_BUCKET_NAME}/{blob_path}",
+        expires_at=expires_at
+    )
+
+@router.post("/upload/complete", response_model=UploadResponse, status_code=200)
+async def complete_upload(request: CompleteUploadRequest = Body(...)):
+    """Complete signed URL upload and verify file exists."""
+    # Validate file_id
+    # Get upload record from store
+    # Check if record exists
+    # Verify file exists in GCS
+    # Update status to COMPLETED
+    # Return upload metadata
     pass
 ```
 
 ### 9. Upload UI (`eduscale.ui.templates.upload`)
 
-Simple Jinja2 template with inline JavaScript:
+Jinja2 template with automatic routing logic based on file size:
 
 ```html
 <!DOCTYPE html>
@@ -391,6 +572,7 @@ Simple Jinja2 template with inline JavaScript:
         input, select { width: 100%; padding: 8px; }
         button { padding: 10px 20px; background: #007bff; color: white; border: none; cursor: pointer; }
         #status { margin-top: 20px; padding: 10px; border: 1px solid #ddd; min-height: 100px; }
+        .info { color: #666; font-size: 0.9em; margin-top: 5px; }
     </style>
 </head>
 <body>
@@ -407,16 +589,135 @@ Simple Jinja2 template with inline JavaScript:
         <div class="form-group">
             <label>File:</label>
             <input type="file" id="fileInput" required />
+            <div class="info" id="fileInfo"></div>
         </div>
         <button type="submit">Upload</button>
     </form>
     <div id="status"></div>
     
     <script>
-        // Upload logic with fetch API
-        // 1. Create FormData with file and region_id
-        // 2. POST to /api/v1/upload
-        // 3. Display result
+        const DIRECT_UPLOAD_THRESHOLD = 31 * 1024 * 1024; // 31 MB
+        const fileInput = document.getElementById('fileInput');
+        const fileInfo = document.getElementById('fileInfo');
+        const statusDiv = document.getElementById('status');
+        
+        // Show file size info
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+                const method = file.size <= DIRECT_UPLOAD_THRESHOLD ? 'Direct upload' : 'Signed URL upload';
+                fileInfo.textContent = `Size: ${sizeMB} MB (${method})`;
+            }
+        });
+        
+        // Handle form submission with automatic routing
+        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const file = fileInput.files[0];
+            const regionId = document.getElementById('regionId').value;
+            
+            if (!file) {
+                statusDiv.textContent = 'Please select a file';
+                return;
+            }
+            
+            try {
+                // Automatic routing based on file size
+                if (file.size <= DIRECT_UPLOAD_THRESHOLD) {
+                    await directUpload(file, regionId);
+                } else {
+                    await signedUrlUpload(file, regionId);
+                }
+            } catch (error) {
+                statusDiv.textContent = `Error: ${error.message}`;
+            }
+        });
+        
+        // Direct upload for small files
+        async function directUpload(file, regionId) {
+            statusDiv.textContent = 'Uploading (direct)...';
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('region_id', regionId);
+            
+            const response = await fetch('/api/v1/upload', {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Upload failed');
+            }
+            
+            const result = await response.json();
+            statusDiv.innerHTML = `
+                <strong>Upload complete!</strong><br>
+                File ID: ${result.file_id}<br>
+                Path: ${result.storage_path}
+            `;
+        }
+        
+        // Signed URL upload for large files
+        async function signedUrlUpload(file, regionId) {
+            statusDiv.textContent = 'Creating upload session...';
+            
+            // Step 1: Create upload session
+            const sessionResponse = await fetch('/api/v1/upload/sessions', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    region_id: regionId,
+                    file_name: file.name,
+                    file_size_bytes: file.size,
+                    content_type: file.type || 'application/octet-stream'
+                })
+            });
+            
+            if (!sessionResponse.ok) {
+                const error = await sessionResponse.json();
+                throw new Error(error.detail || 'Session creation failed');
+            }
+            
+            const session = await sessionResponse.json();
+            
+            // Step 2: Upload directly to GCS
+            statusDiv.textContent = 'Uploading to storage...';
+            
+            const uploadResponse = await fetch(session.signed_url, {
+                method: 'PUT',
+                headers: {'Content-Type': file.type || 'application/octet-stream'},
+                body: file
+            });
+            
+            if (!uploadResponse.ok) {
+                throw new Error('Upload to storage failed');
+            }
+            
+            // Step 3: Complete upload
+            statusDiv.textContent = 'Finalizing upload...';
+            
+            const completeResponse = await fetch('/api/v1/upload/complete', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({file_id: session.file_id})
+            });
+            
+            if (!completeResponse.ok) {
+                const error = await completeResponse.json();
+                throw new Error(error.detail || 'Upload completion failed');
+            }
+            
+            const result = await completeResponse.json();
+            statusDiv.innerHTML = `
+                <strong>Upload complete!</strong><br>
+                File ID: ${result.file_id}<br>
+                Path: ${result.storage_path}
+            `;
+        }
     </script>
 </body>
 </html>
@@ -453,7 +754,9 @@ UploadRecord {
     size_bytes: integer
     storage_backend: "gcs" | "local"
     storage_path: string
+    status: "pending" | "completed"
     created_at: datetime
+    completed_at: datetime | null
 }
 ```
 
@@ -474,13 +777,20 @@ UploadRecord {
 - Empty or missing `region_id`
 - File size exceeds `MAX_UPLOAD_MB`
 - Content type not in `ALLOWED_UPLOAD_MIME_TYPES` (when configured)
-- Invalid file_id in local upload request
+- Invalid file_id in completion request
+- File does not exist in GCS after signed URL upload
+- Large file upload attempted with local storage backend
+
+### Not Found Errors (HTTP 404)
+
+- Upload record not found for given file_id in completion request
 
 ### Configuration Errors (HTTP 500)
 
 - `STORAGE_BACKEND="gcs"` but `GCS_BUCKET_NAME` not set
 - GCS authentication failure
 - Local filesystem write permission denied
+- Signed URL generation failure
 
 ### Error Response Format
 
@@ -510,7 +820,8 @@ All logs use structured logging from `eduscale.core.logging`.
 - Test default values
 
 **Upload Store Tests** (`tests/test_upload_store.py`):
-- Test upload record creation and retrieval
+- Test upload record creation and retrieval with status
+- Test status updates (pending → completed)
 - Test listing all uploads
 - Test missing record handling
 
@@ -518,21 +829,29 @@ All logs use structured logging from `eduscale.core.logging`.
 - Test filename sanitization
 - Test path generation
 - Mock GCS client for signed URL generation
+- Test signed URL expiration and constraints
+- Test file existence checking in GCS
 - Test local path construction
 
 ### Integration Tests
 
 **Upload Endpoint Tests** (`tests/test_upload.py`):
-- Test `POST /api/v1/upload` with valid file and region_id
+- Test `POST /api/v1/upload` with valid file and region_id (small files)
+- Test `POST /api/v1/upload/sessions` with valid metadata
+- Test `POST /api/v1/upload/complete` with valid file_id
 - Test validation errors (oversized, invalid MIME, empty region)
+- Test automatic routing based on file size threshold
+- Test signed URL generation for large files
+- Test error when large file attempted with local backend
 - Test response structure in both GCS and local modes
 - Mock storage backends to avoid external dependencies
 - Test file streaming and storage
-- Verify upload record creation
+- Verify upload record creation with correct status
 
 **UI Tests** (`tests/test_ui.py`):
 - Test `GET /upload` returns HTML
 - Verify template rendering
+- Verify JavaScript routing logic present
 
 ### Test Configuration
 
@@ -563,14 +882,25 @@ def local_storage_settings(monkeypatch):
 
 ### Manual Testing Checklist
 
-- [ ] Upload CSV file in local mode
-- [ ] Upload audio file in local mode
+**Local Mode:**
+- [ ] Upload small CSV file (<31 MB) via direct upload
 - [ ] Verify file appears in `data/uploads/raw/{file_id}/`
 - [ ] Test oversized file rejection
 - [ ] Test invalid MIME type rejection
-- [ ] Configure GCS mode and test signed URL generation
-- [ ] Verify GCS upload completes successfully
-- [ ] Test UI in both storage modes
+
+**GCS Mode:**
+- [ ] Upload small file (<31 MB) via direct upload
+- [ ] Upload large file (>31 MB) via signed URL
+- [ ] Verify signed URL generation and expiration
+- [ ] Verify file appears in GCS bucket
+- [ ] Test upload completion endpoint
+- [ ] Test error when file doesn't exist after signed URL upload
+
+**UI Testing:**
+- [ ] Verify file size display and routing method indicator
+- [ ] Test automatic routing for small files
+- [ ] Test automatic routing for large files
+- [ ] Verify status messages during multi-step upload
 
 ## Infrastructure Requirements
 
@@ -724,20 +1054,30 @@ python-multipart>=0.0.6
 - Not suitable for multi-instance deployments without shared filesystem
 - Intended for development and testing only
 
+### Signed URL Upload Benefits
+
+- **Eliminates Cloud Run 32 MB limit**: Files uploaded directly to GCS bypass API gateway
+- **Reduces API bandwidth costs**: No proxy traffic through Cloud Run instances
+- **Improves scalability**: API only handles lightweight session creation
+- **Better performance**: Direct browser-to-GCS upload without intermediate hops
+- **Lower latency**: Eliminates double-hop (client → Cloud Run → GCS)
+
 ### API Bandwidth Considerations
 
-- API server handles all file uploads in both modes
-- Use streaming to minimize memory usage
+- **Small files (≤31 MB)**: API server handles upload with streaming
+- **Large files (>31 MB)**: API only creates session (~1 KB request), client uploads directly to GCS
+- Use streaming to minimize memory usage for direct uploads
 - Consider Cloud Run request timeout limits (up to 60 minutes for 2nd gen)
-- For very large files (>100MB), consider implementing resumable uploads in future
+- Signed URL approach eliminates timeout concerns for large files
 
 ### Optimization Strategies
 
 - Lazy-load GCS client (initialize on first use)
 - Reuse GCS client and bucket objects across requests
-- Stream uploads in 64KB chunks to limit memory usage
+- Stream uploads in 64KB chunks to limit memory usage for direct uploads
 - Use async handlers where possible to avoid blocking
-- Consider implementing upload progress tracking for large files
+- Signed URLs eliminate need for upload progress tracking on server side
+- Client can implement progress tracking for signed URL uploads independently
 
 ## Migration Path
 

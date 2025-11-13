@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     # Upload Constraints
     MAX_UPLOAD_MB: int = 50
     ALLOWED_UPLOAD_MIME_TYPES: str = ""  # Comma-separated, empty = allow all
+    DIRECT_UPLOAD_SIZE_THRESHOLD_MB: int = 31  # Files larger than this use signed URLs
 
     # MIME Decoder Service Configuration
     TRANSFORMER_SERVICE_URL: str = ""
@@ -46,6 +47,11 @@ class Settings(BaseSettings):
     def max_upload_bytes(self) -> int:
         """Convert MAX_UPLOAD_MB to bytes."""
         return self.MAX_UPLOAD_MB * 1024 * 1024
+
+    @property
+    def direct_upload_threshold_bytes(self) -> int:
+        """Convert DIRECT_UPLOAD_SIZE_THRESHOLD_MB to bytes."""
+        return self.DIRECT_UPLOAD_SIZE_THRESHOLD_MB * 1024 * 1024
 
 
 # Singleton settings instance
