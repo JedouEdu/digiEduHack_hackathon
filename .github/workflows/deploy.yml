@@ -15,6 +15,7 @@ env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   REGION: europe-west1
   SERVICE_NAME: jedouscale-engine
+  MIME_DECODER_SERVICE_NAME: mime-decoder
   REPOSITORY: jedouscale-engine-repo
 
 jobs:
@@ -52,7 +53,19 @@ jobs:
         run: |
           docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
           docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:latest
-      
+
+      - name: Build MIME Decoder Docker image
+        run: |
+          docker build -f docker/Dockerfile.mime-decoder \
+            -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.MIME_DECODER_SERVICE_NAME }}:${{ github.sha }} \
+            -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.MIME_DECODER_SERVICE_NAME }}:latest \
+            .
+
+      - name: Push MIME Decoder Docker image
+        run: |
+          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.MIME_DECODER_SERVICE_NAME }}:${{ github.sha }}
+          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.MIME_DECODER_SERVICE_NAME }}:latest
+
       - name: Prepare Cloud Run configuration
         run: |
           sed -i "s|IMAGE_URL_PLACEHOLDER|${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:${{ github.sha }}|g" infra/cloud-run-config.yaml
