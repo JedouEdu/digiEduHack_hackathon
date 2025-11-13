@@ -7,13 +7,19 @@ Handles CloudEvent processing and routes files to appropriate transformers.
 import asyncio
 import json
 import logging
+import os
+import shutil
+import tempfile
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, Any
 
 from eduscale.services.mime_decoder.classifier import classify_mime_type
 from eduscale.services.mime_decoder.models import CloudEvent, StorageObjectData, ProcessingRequest
 from eduscale.services.mime_decoder.clients import call_transformer, update_backend_status
+from eduscale.services.mime_decoder.gcs_client import GCSClient
+from eduscale.services.mime_decoder.archive_extractor import ArchiveExtractor
 from eduscale.core.config import settings
 
 # Configure structured logging for Cloud Logging
@@ -98,6 +104,231 @@ def _convert_gcs_notification_to_cloud_event(gcs_data: Dict[str, Any]) -> CloudE
         raise ValueError(f"Invalid GCS notification format: {str(e)}")
 
 
+async def process_archive(
+    cloud_event: CloudEvent,
+    processing_req: ProcessingRequest,
+) -> Dict[str, Any]:
+    """
+    Process an archive file by extracting and processing contents.
+    
+    Args:
+        cloud_event: CloudEvent containing archive metadata
+        processing_req: Processing request for the archive
+        
+    Returns:
+        Response dictionary with extraction statistics
+    """
+    start_time = time.time()
+    temp_dir = None
+    
+    try:
+        # Check archive size
+        archive_size_bytes = int(cloud_event.data.size)
+        if archive_size_bytes > settings.max_archive_size_bytes:
+            logger.warning(
+                f"Archive exceeds size limit, skipping extraction",
+                extra={
+                    "event_id": cloud_event.id,
+                    "archive_size_mb": archive_size_bytes / (1024 * 1024),
+                    "max_size_mb": settings.MAX_ARCHIVE_SIZE_MB
+                }
+            )
+            return {
+                "status": "skipped",
+                "reason": "archive_too_large",
+                "message": f"Archive size {archive_size_bytes} exceeds limit"
+            }
+        
+        # Determine archive type from content type
+        content_type = cloud_event.data.contentType.lower()
+        if "zip" in content_type:
+            archive_type = "zip"
+        elif "tar" in content_type:
+            archive_type = "tar"
+        elif "gzip" in content_type or "x-gzip" in content_type:
+            archive_type = "gzip"
+        else:
+            archive_type = "zip"  # default
+        
+        logger.info(
+            "Starting archive extraction",
+            extra={
+                "event_id": cloud_event.id,
+                "archive_name": cloud_event.data.name,
+                "archive_size_mb": archive_size_bytes / (1024 * 1024),
+                "archive_type": archive_type
+            }
+        )
+        
+        # Create temporary directory
+        temp_dir = tempfile.mkdtemp(prefix="archive_")
+        archive_path = os.path.join(temp_dir, "archive")
+        extract_dir = os.path.join(temp_dir, "extracted")
+        
+        # Initialize GCS client
+        bucket_name = settings.UPLOADS_BUCKET or cloud_event.data.bucket
+        gcs_client = GCSClient(bucket_name)
+        
+        # Download archive from GCS
+        await gcs_client.download_file(cloud_event.data.name, archive_path)
+        
+        # Extract archive
+        extractor = ArchiveExtractor(
+            max_files=settings.MAX_FILES_PER_ARCHIVE,
+            max_file_size_mb=settings.MAX_EXTRACTED_FILE_SIZE_MB
+        )
+        extracted_files = await extractor.extract_archive(
+            archive_path, archive_type, extract_dir
+        )
+        
+        logger.info(
+            f"Extracted {len(extracted_files)} files from archive",
+            extra={
+                "event_id": cloud_event.id,
+                "files_extracted": len(extracted_files)
+            }
+        )
+        
+        # Process each extracted file
+        files_uploaded = 0
+        files_processed = 0
+        
+        # Extract archive ID from the original path
+        # uploads/{region_id}/{archive_id}.zip -> archive_id
+        archive_name_parts = Path(cloud_event.data.name).stem
+        
+        for extracted_file in extracted_files:
+            try:
+                # Upload extracted file to GCS
+                # Pattern: uploads/{region_id}/{archive_id}/{filename}
+                destination_name = f"uploads/{processing_req.region_id}/{archive_name_parts}/{extracted_file.filename}"
+                
+                await gcs_client.upload_file(
+                    extracted_file.local_path,
+                    destination_name,
+                    extracted_file.mime_type
+                )
+                files_uploaded += 1
+                
+                logger.info(
+                    "Processing extracted file",
+                    extra={
+                        "event_id": cloud_event.id,
+                        "filename": extracted_file.filename,
+                        "mime_type": extracted_file.mime_type,
+                        "size_bytes": extracted_file.size_bytes
+                    }
+                )
+                
+                # Classify extracted file
+                file_category = classify_mime_type(extracted_file.mime_type)
+                
+                # Skip nested archives (no recursive extraction)
+                if file_category.value == "archive":
+                    logger.info(
+                        "Skipping nested archive",
+                        extra={
+                            "event_id": cloud_event.id,
+                            "filename": extracted_file.filename
+                        }
+                    )
+                    continue
+                
+                # Create processing request for extracted file
+                extracted_processing_req = ProcessingRequest(
+                    file_id=f"{processing_req.file_id}_{Path(extracted_file.filename).stem}",
+                    region_id=processing_req.region_id,
+                    bucket=bucket_name,
+                    object_name=destination_name,
+                    content_type=extracted_file.mime_type,
+                    size_bytes=str(extracted_file.size_bytes),
+                    file_category=file_category.value,
+                    timestamp=datetime.utcnow().isoformat()
+                )
+                
+                # Call Transformer service
+                await call_transformer(
+                    request=extracted_processing_req,
+                    transformer_url=settings.TRANSFORMER_SERVICE_URL,
+                    timeout=settings.REQUEST_TIMEOUT
+                )
+                
+                # Update Backend status
+                asyncio.create_task(
+                    update_backend_status(
+                        file_id=extracted_processing_req.file_id,
+                        region_id=extracted_processing_req.region_id,
+                        status="PROCESSING",
+                        backend_url=settings.BACKEND_SERVICE_URL,
+                        timeout=settings.BACKEND_UPDATE_TIMEOUT
+                    )
+                )
+                
+                files_processed += 1
+                
+            except Exception as e:
+                logger.error(
+                    f"Failed to process extracted file: {e}",
+                    extra={
+                        "event_id": cloud_event.id,
+                        "filename": extracted_file.filename,
+                        "error": str(e)
+                    }
+                )
+                # Continue with next file
+        
+        processing_time_ms = int((time.time() - start_time) * 1000)
+        
+        logger.info(
+            "Archive extraction completed",
+            extra={
+                "event_id": cloud_event.id,
+                "files_extracted": len(extracted_files),
+                "files_uploaded": files_uploaded,
+                "files_processed": files_processed,
+                "processing_time_ms": processing_time_ms
+            }
+        )
+        
+        return {
+            "status": "success",
+            "event_id": cloud_event.id,
+            "archive_name": cloud_event.data.name,
+            "files_extracted": len(extracted_files),
+            "files_uploaded": files_uploaded,
+            "files_processed": files_processed,
+            "processing_time_ms": processing_time_ms,
+            "message": "Archive processed successfully"
+        }
+        
+    except Exception as e:
+        logger.error(
+            f"Archive processing failed: {e}",
+            extra={
+                "event_id": cloud_event.id,
+                "archive_name": cloud_event.data.name,
+                "error": str(e)
+            },
+            exc_info=True
+        )
+        raise
+    
+    finally:
+        # Cleanup temporary files
+        if temp_dir and os.path.exists(temp_dir):
+            try:
+                shutil.rmtree(temp_dir)
+                logger.debug(
+                    "Cleaned up temporary directory",
+                    extra={"temp_dir": temp_dir}
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to cleanup temp directory: {e}",
+                    extra={"temp_dir": temp_dir, "error": str(e)}
+                )
+
+
 async def process_cloud_event(event_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Process a CloudEvent from Eventarc.
@@ -159,7 +390,19 @@ async def process_cloud_event(event_data: Dict[str, Any]) -> Dict[str, Any]:
             },
         )
 
-        # Call Transformer service
+        # Check if file is an archive and archive extraction is enabled
+        if file_category.value == "archive" and settings.ENABLE_ARCHIVE_EXTRACTION:
+            logger.info(
+                "Processing archive file",
+                extra={
+                    "event_id": cloud_event.id,
+                    "file_id": processing_req.file_id,
+                    "archive_name": cloud_event.data.name
+                }
+            )
+            return await process_archive(cloud_event, processing_req)
+
+        # Call Transformer service for non-archive files
         transformer_response = await call_transformer(
             request=processing_req,
             transformer_url=settings.TRANSFORMER_SERVICE_URL,

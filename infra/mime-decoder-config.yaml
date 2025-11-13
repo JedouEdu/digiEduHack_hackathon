@@ -41,6 +41,15 @@ spec:
           value: '5'
         - name: LOG_LEVEL
           value: INFO
+        # Archive Extraction Configuration
+        - name: ENABLE_ARCHIVE_EXTRACTION
+          value: 'true'
+        - name: MAX_ARCHIVE_SIZE_MB
+          value: '500'
+        - name: MAX_FILES_PER_ARCHIVE
+          value: '100'
+        - name: MAX_EXTRACTED_FILE_SIZE_MB
+          value: '50'
         resources:
           limits:
             cpu: '1'
