@@ -6,13 +6,92 @@ Handles CloudEvent processing and routes files to appropriate transformers.
 
 import json
 import logging
+from datetime import datetime
 from typing import Dict, Any
 
 from eduscale.services.mime_decoder.classifier import classify_mime_type
-from eduscale.services.mime_decoder.models import CloudEvent, ProcessingRequest
+from eduscale.services.mime_decoder.models import CloudEvent, StorageObjectData, ProcessingRequest
 
 # Configure structured logging for Cloud Logging
 logger = logging.getLogger(__name__)
+
+
+def _convert_gcs_notification_to_cloud_event(gcs_data: Dict[str, Any]) -> CloudEvent:
+    """
+    Convert a raw GCS notification to CloudEvent format.
+    
+    GCS notifications are sent when Eventarc is in GCS_NOTIFICATION mode.
+    This function normalizes them to the CloudEvent format expected by the service.
+    
+    Args:
+        gcs_data: Raw GCS notification data
+        
+    Returns:
+        CloudEvent object
+        
+    Raises:
+        ValueError: If required fields are missing
+    """
+    try:
+        # Extract required fields from GCS notification
+        bucket = gcs_data.get("bucket")
+        name = gcs_data.get("name")
+        content_type = gcs_data.get("contentType", "application/octet-stream")
+        size = gcs_data.get("size", "0")
+        time_created = gcs_data.get("timeCreated")
+        updated = gcs_data.get("updated")
+        generation = gcs_data.get("generation")
+        metageneration = gcs_data.get("metageneration")
+        event_id = gcs_data.get("id", gcs_data.get("generation", "unknown"))
+        
+        if not bucket or not name:
+            raise ValueError("Missing required fields: bucket and name")
+        
+        # Create StorageObjectData
+        storage_data = StorageObjectData(
+            bucket=bucket,
+            name=name,
+            contentType=content_type,
+            size=size,
+            timeCreated=time_created or datetime.utcnow().isoformat(),
+            updated=updated or datetime.utcnow().isoformat(),
+            generation=generation,
+            metageneration=metageneration,
+        )
+        
+        # Create CloudEvent wrapper
+        cloud_event = CloudEvent(
+            specversion="1.0",
+            type="google.cloud.storage.object.v1.finalized",
+            source=f"//storage.googleapis.com/buckets/{bucket}",
+            subject=f"objects/{name}",
+            id=event_id,
+            time=time_created or datetime.utcnow().isoformat(),
+            datacontenttype="application/json",
+            data=storage_data,
+        )
+        
+        logger.info(
+            "Converted GCS notification to CloudEvent",
+            extra={
+                "bucket": bucket,
+                "object_name": name,
+                "event_id": event_id,
+            },
+        )
+        
+        return cloud_event
+        
+    except Exception as e:
+        logger.error(
+            "Failed to convert GCS notification to CloudEvent",
+            extra={
+                "error": str(e),
+                "gcs_data": json.dumps(gcs_data, default=str),
+            },
+            exc_info=True,
+        )
+        raise ValueError(f"Invalid GCS notification format: {str(e)}")
 
 
 def process_cloud_event(event_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -20,7 +99,7 @@ def process_cloud_event(event_data: Dict[str, Any]) -> Dict[str, Any]:
     Process a CloudEvent from Eventarc.
 
     Args:
-        event_data: Raw CloudEvent data from Eventarc
+        event_data: Raw CloudEvent data from Eventarc (or GCS notification)
 
     Returns:
         Response dictionary with status and details
@@ -30,8 +109,15 @@ def process_cloud_event(event_data: Dict[str, Any]) -> Dict[str, Any]:
         Exception: For unexpected processing errors
     """
     try:
-        # Parse CloudEvent
-        cloud_event = CloudEvent(**event_data)
+        # Check if this is a raw GCS notification or a CloudEvent
+        # GCS notifications have 'kind': 'storage#object'
+        # CloudEvents have 'specversion', 'type', 'source', etc.
+        if "kind" in event_data and event_data.get("kind") == "storage#object":
+            # This is a raw GCS notification, convert it to CloudEvent format
+            cloud_event = _convert_gcs_notification_to_cloud_event(event_data)
+        else:
+            # This is already a CloudEvent
+            cloud_event = CloudEvent(**event_data)
 
         # Log event receipt
         logger.info(
