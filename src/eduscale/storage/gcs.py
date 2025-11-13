@@ -5,6 +5,7 @@ from typing import BinaryIO, Optional
 from datetime import timedelta
 
 from google.cloud import storage
+from google.oauth2 import service_account
 
 from eduscale.core.config import settings
 from eduscale.storage.base import StorageBackend
@@ -50,43 +51,40 @@ class GCSStorageBackend(StorageBackend):
         from google.auth import iam
         from google.auth.transport import requests as auth_requests
         from google.auth import compute_engine
-        
+
         bucket = self._get_bucket()
 
         safe_name = self._sanitize_filename(file_name)
         blob_path = f"raw/{file_id}/{safe_name}"
         blob = bucket.blob(blob_path)
 
-        # Use compute engine credentials (works in Cloud Run)
+        # Use compute engine credentials (works in Cloud Run / GCE / GKE)
+        # This assumes your prod service is running as a service account.
         credentials = compute_engine.Credentials()
-        
+
         # Create auth request for IAM operations
         auth_request = auth_requests.Request()
-        
+
         # Refresh to get service account email
         credentials.refresh(auth_request)
         service_account_email = credentials.service_account_email
-        
-        # Create IAM signer that uses signBlob API (no private key needed)
-        # This requires the service account to have iam.serviceAccountTokenCreator role
+
+        # Create IAM signer that uses the signBlob API (no private key file needed)
+        # The service account must have roles/iam.serviceAccountTokenCreator on itself.
         signer = iam.Signer(
             request=auth_request,
             credentials=credentials,
-            service_account_email=service_account_email
+            service_account_email=service_account_email,
         )
-        
-        # Create a minimal credentials object with the signer
-        # This is what blob.generate_signed_url() expects
-        class SigningCredentials:
-            def __init__(self, signer, email):
-                self.signer = signer
-                self.service_account_email = email
-                
-            def sign_bytes(self, message):
-                return self.signer.sign(message)
-        
-        signing_creds = SigningCredentials(signer, service_account_email)
-        
+
+        # Wrap the IAM signer into a Credentials object that the storage library
+        # recognizes as having signing capability.
+        signing_creds = service_account.Credentials(
+            signer=signer,
+            service_account_email=service_account_email,
+            token_uri=credentials.token_uri,
+        )
+
         # Generate V4 signed URL for PUT using IAM signing
         signed_url = blob.generate_signed_url(
             version="v4",
