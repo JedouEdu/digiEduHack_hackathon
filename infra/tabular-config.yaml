@@ -42,7 +42,7 @@ spec:
         csi:
           driver: gcsfuse.run.googleapis.com
           volumeAttributes:
-            bucketName: tabular-model-cache
+            bucketName: jedouedu-tabular-model-cache
       
       containers:
       - name: tabular-service
