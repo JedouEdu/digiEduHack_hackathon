@@ -235,6 +235,20 @@ This plan breaks the NL→SQL Chat Interface project into incremental, testable 
 
 ### Phase 5: Deployment (NO DOCKER CHANGES!) (1-2 hours, DRASTICALLY REDUCED!)
 
+- [ ] **Task 5.0**: Create NLQ Service Account in Terraform (NEW!)
+  - Copy `.kiro/specs/nlq-chat-interface/terraform/nlq-service-account.tf` to `infra/terraform/`
+  - Apply Terraform: `cd infra/terraform && terraform apply`
+  - Verify service account created: `gcloud iam service-accounts list | grep nlq-service`
+  - Verify IAM roles: `roles/bigquery.dataViewer` and `roles/bigquery.jobUser`
+  - Get service account email: `terraform output nlq_service_account_email`
+  - **CRITICAL**: This service account has READ-ONLY access (no dataEditor!)
+  - _Requirements: 7.1-7.10 (Security)_
+  - _Validation_:
+    - Service account exists: `nlq-service@PROJECT_ID.iam.gserviceaccount.com`
+    - Has exactly 2 roles (dataViewer + jobUser)
+    - Can execute SELECT queries
+    - **CANNOT** INSERT/UPDATE/DELETE data (test this!)
+
 - [ ] **Task 5.1**: Verify Dockerfile (NO CHANGES NEEDED!)
   - **DO NOT MODIFY Dockerfile** - use existing as-is
   - Verify existing Dockerfile has:
@@ -256,6 +270,7 @@ This plan breaks the NL→SQL Chat Interface project into incremental, testable 
   - **Set STANDARD resource limits**: memory=2Gi, cpu=1 (NOT 8Gi/2!)
   - **Set STANDARD concurrency**: 80 (NOT 5!)
   - **Set STANDARD timeout**: 60 seconds (NOT 300!)
+  - **Set service account**: `serviceAccountName: nlq-service@PROJECT_ID.iam.gserviceaccount.com`
   - Set environment variables:
     - FEATHERLESS_API_KEY (from Secret Manager)
     - NLQ_MAX_RESULTS=100
@@ -266,6 +281,7 @@ This plan breaks the NL→SQL Chat Interface project into incremental, testable 
   - _Requirements: 10.1-10.12_
   - _Validation_:
     - Config file has standard Cloud Run resources
+    - Service account is `nlq-service` (read-only!)
     - No "Ollama" mentions in config
     - Featherless.ai API key from Secret Manager
 
