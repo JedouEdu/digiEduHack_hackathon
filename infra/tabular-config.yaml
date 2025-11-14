@@ -38,7 +38,7 @@ spec:
       
       containers:
       - name: tabular-service
-        image: gcr.io/jedouedu/tabular-service:latest
+        image: gcr.io/PROJECT_ID/tabular-service:latest
         
         ports:
         - name: http1

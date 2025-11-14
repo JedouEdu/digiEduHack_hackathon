@@ -162,8 +162,42 @@ resource "google_bigquery_table" "observations" {
   schema = jsonencode([
     { name = "file_id", type = "STRING", mode = "REQUIRED" },
     { name = "region_id", type = "STRING", mode = "REQUIRED" },
-    { name = "observation_text", type = "STRING", mode = "NULLABLE" },
+    { name = "text_content", type = "STRING", mode = "NULLABLE" },
+    { name = "detected_entities", type = "JSON", mode = "NULLABLE" },
+    { name = "sentiment_score", type = "FLOAT64", mode = "NULLABLE" },
+    { name = "original_content_type", type = "STRING", mode = "NULLABLE" },
+    { name = "audio_duration_ms", type = "INT64", mode = "NULLABLE" },
+    { name = "audio_confidence", type = "FLOAT64", mode = "NULLABLE" },
+    { name = "audio_language", type = "STRING", mode = "NULLABLE" },
+    { name = "page_count", type = "INT64", mode = "NULLABLE" },
     { name = "source_table_type", type = "STRING", mode = "NULLABLE" },
+    { name = "ingest_timestamp", type = "TIMESTAMP", mode = "REQUIRED" }
+  ])
+
+  depends_on = [google_bigquery_dataset.core]
+}
+
+# Observation Targets Table
+# Junction table linking observations to detected entities (teachers, students, subjects, etc.)
+resource "google_bigquery_table" "observation_targets" {
+  dataset_id = google_bigquery_dataset.core.dataset_id
+  table_id   = "observation_targets"
+
+  # Partition by ingest_timestamp for time-based queries
+  time_partitioning {
+    type  = "DAY"
+    field = "ingest_timestamp"
+  }
+
+  # Cluster by observation_id and target_type for efficient queries
+  clustering = ["observation_id", "target_type"]
+
+  schema = jsonencode([
+    { name = "observation_id", type = "STRING", mode = "REQUIRED" },
+    { name = "target_type", type = "STRING", mode = "REQUIRED" },
+    { name = "target_id", type = "STRING", mode = "REQUIRED" },
+    { name = "relevance_score", type = "FLOAT64", mode = "NULLABLE" },
+    { name = "confidence", type = "STRING", mode = "NULLABLE" },
     { name = "ingest_timestamp", type = "TIMESTAMP", mode = "REQUIRED" }
   ])
 
