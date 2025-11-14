@@ -95,12 +95,20 @@ export SENTENCE_TRANSFORMERS_HOME="${TMP_DIR}/sbert"
 export HUGGINGFACE_HUB_CACHE="${TMP_DIR}/sbert"
 mkdir -p "${SENTENCE_TRANSFORMERS_HOME}"
 
-# Download the model using Python
+# Download the model using Python (download only, don't load into memory to avoid OOM)
 if python3 -c "
-from sentence_transformers import SentenceTransformer
+from huggingface_hub import snapshot_download
 import sys
+import os
 try:
-    model = SentenceTransformer('${EMBEDDING_MODEL}')
+    cache_dir = '${TMP_DIR}/sbert'
+    model_name = '${EMBEDDING_MODEL}'.replace('/', '--')
+    snapshot_download(
+        repo_id='${EMBEDDING_MODEL}',
+        cache_dir=cache_dir,
+        local_dir=os.path.join(cache_dir, f'models--{model_name}'),
+        local_dir_use_symlinks=False
+    )
     print('Model downloaded successfully')
     sys.exit(0)
 except Exception as e:
