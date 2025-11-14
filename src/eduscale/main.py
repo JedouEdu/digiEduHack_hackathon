@@ -3,6 +3,7 @@
 from fastapi import FastAPI
 
 from eduscale.api.v1 import routes_health
+from eduscale.api.v1.routes_nlq import router as nlq_router, ui_router as nlq_ui_router
 from eduscale.api.v1.routes_tabular import router as tabular_router
 from eduscale.api.v1.routes_upload import router as upload_router, ui_router
 from eduscale.core.config import settings
@@ -29,6 +30,8 @@ def create_app() -> FastAPI:
     app.include_router(tabular_router, tags=["tabular"])
     app.include_router(upload_router)
     app.include_router(ui_router)
+    app.include_router(nlq_router, tags=["nlq"])
+    app.include_router(nlq_ui_router)
 
     return app
 

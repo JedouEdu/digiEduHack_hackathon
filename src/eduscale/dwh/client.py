@@ -6,6 +6,7 @@ including staging tables and MERGE operations to core tables.
 
 import logging
 from dataclasses import dataclass
+from datetime import date, datetime
 from typing import Any
 
 from google.cloud import bigquery
@@ -231,6 +232,7 @@ class DwhClient:
         except Exception as e:
             logger.warning(f"Failed to create staging table: {e}")
 
+
     def insert_observation(
         self,
         observation: dict[str, Any],
@@ -278,3 +280,286 @@ class DwhClient:
                 logger.error(f"Exception inserting observation_targets: {e}")
 
         return rows_inserted
+
+    def upsert_dimension_regions(self, regions: list[dict[str, Any]]) -> int:
+        """Upsert regions into dim_region table.
+
+        Args:
+            regions: List of region dicts with region_id, region_name, from_date, to_date
+
+        Returns:
+            Number of rows upserted
+        """
+        if not regions:
+            return 0
+
+        table_ref = f"{self.project_id}.{self.dataset_id}.dim_region"
+
+        # Use MERGE to upsert (insert or update)
+        for region in regions:
+            region_id = region.get("region_id")
+            region_name = region.get("region_name")
+            from_date = region.get("from_date")
+            to_date = region.get("to_date")
+
+            if not region_id:
+                logger.warning("Skipping region without region_id")
+                continue
+
+            query = f"""
+            MERGE `{table_ref}` AS target
+            USING (
+                SELECT 
+                    @region_id AS region_id,
+                    @region_name AS region_name,
+                    @from_date AS from_date,
+                    @to_date AS to_date
+            ) AS source
+            ON target.region_id = source.region_id
+            WHEN MATCHED THEN
+                UPDATE SET
+                    region_name = COALESCE(source.region_name, target.region_name),
+                    from_date = COALESCE(source.from_date, target.from_date),
+                    to_date = COALESCE(source.to_date, target.to_date)
+            WHEN NOT MATCHED THEN
+                INSERT (region_id, region_name, from_date, to_date)
+                VALUES (source.region_id, source.region_name, source.from_date, source.to_date)
+            """
+
+            job_config = bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("region_id", "STRING", region_id),
+                    bigquery.ScalarQueryParameter("region_name", "STRING", region_name),
+                    bigquery.ScalarQueryParameter("from_date", "DATE", from_date),
+                    bigquery.ScalarQueryParameter("to_date", "DATE", to_date),
+                ]
+            )
+
+            try:
+                query_job = self.client.query(query, job_config=job_config)
+                query_job.result()
+            except Exception as e:
+                logger.error(f"Failed to upsert region {region_id}: {e}")
+
+        logger.info(f"Upserted {len(regions)} regions to dim_region")
+        return len(regions)
+
+    def upsert_dimension_schools(self, schools: list[dict[str, Any]]) -> int:
+        """Upsert schools into dim_school table.
+
+        Args:
+            schools: List of school dicts with school_name, region_id, from_date, to_date
+
+        Returns:
+            Number of rows upserted
+        """
+        if not schools:
+            return 0
+
+        table_ref = f"{self.project_id}.{self.dataset_id}.dim_school"
+
+        # Use MERGE to upsert (insert or update)
+        for school in schools:
+            school_name = school.get("school_name")
+            region_id = school.get("region_id")
+            from_date = school.get("from_date")
+            to_date = school.get("to_date")
+
+            if not school_name:
+                logger.warning("Skipping school without school_name")
+                continue
+
+            query = f"""
+            MERGE `{table_ref}` AS target
+            USING (
+                SELECT 
+                    @school_name AS school_name,
+                    @region_id AS region_id,
+                    @from_date AS from_date,
+                    @to_date AS to_date
+            ) AS source
+            ON target.school_name = source.school_name
+            WHEN MATCHED THEN
+                UPDATE SET
+                    region_id = COALESCE(source.region_id, target.region_id),
+                    from_date = COALESCE(source.from_date, target.from_date),
+                    to_date = COALESCE(source.to_date, target.to_date)
+            WHEN NOT MATCHED THEN
+                INSERT (school_name, region_id, from_date, to_date)
+                VALUES (source.school_name, source.region_id, source.from_date, source.to_date)
+            """
+
+            job_config = bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("school_name", "STRING", school_name),
+                    bigquery.ScalarQueryParameter("region_id", "STRING", region_id),
+                    bigquery.ScalarQueryParameter("from_date", "DATE", from_date),
+                    bigquery.ScalarQueryParameter("to_date", "DATE", to_date),
+                ]
+            )
+
+            try:
+                query_job = self.client.query(query, job_config=job_config)
+                query_job.result()
+            except Exception as e:
+                logger.error(f"Failed to upsert school {school_name}: {e}")
+
+        logger.info(f"Upserted {len(schools)} schools to dim_school")
+        return len(schools)
+
+    def upsert_dimension_time(self, dates: list[date]) -> int:
+        """Upsert dates into dim_time table.
+
+        Args:
+            dates: List of date objects
+
+        Returns:
+            Number of rows upserted
+        """
+        if not dates:
+            return 0
+
+        table_ref = f"{self.project_id}.{self.dataset_id}.dim_time"
+
+        rows_upserted = 0
+
+        for date_obj in dates:
+            if isinstance(date_obj, datetime):
+                date_obj = date_obj.date()
+            elif isinstance(date_obj, str):
+                # Try to parse date string
+                try:
+                    date_obj = datetime.fromisoformat(date_obj.replace("Z", "+00:00")).date()
+                except Exception:
+                    logger.warning(f"Could not parse date: {date_obj}")
+                    continue
+
+            year = date_obj.year
+            month = date_obj.month
+            day = date_obj.day
+            quarter = (month - 1) // 3 + 1
+            day_of_week = date_obj.weekday() + 1  # Monday=1, Sunday=7
+
+            query = f"""
+            MERGE `{table_ref}` AS target
+            USING (
+                SELECT 
+                    @date AS date,
+                    @year AS year,
+                    @month AS month,
+                    @day AS day,
+                    @quarter AS quarter,
+                    @day_of_week AS day_of_week
+            ) AS source
+            ON target.date = source.date
+            WHEN NOT MATCHED THEN
+                INSERT (date, year, month, day, quarter, day_of_week)
+                VALUES (source.date, source.year, source.month, source.day, source.quarter, source.day_of_week)
+            """
+
+            job_config = bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("date", "DATE", date_obj),
+                    bigquery.ScalarQueryParameter("year", "INTEGER", year),
+                    bigquery.ScalarQueryParameter("month", "INTEGER", month),
+                    bigquery.ScalarQueryParameter("day", "INTEGER", day),
+                    bigquery.ScalarQueryParameter("quarter", "INTEGER", quarter),
+                    bigquery.ScalarQueryParameter("day_of_week", "INTEGER", day_of_week),
+                ]
+            )
+
+            try:
+                query_job = self.client.query(query, job_config=job_config)
+                query_job.result()
+                rows_upserted += 1
+            except Exception as e:
+                logger.error(f"Failed to upsert date {date_obj}: {e}")
+
+        logger.info(f"Upserted {rows_upserted} dates to dim_time")
+        return rows_upserted
+
+    def sync_dimensions_from_facts(self) -> dict[str, int]:
+        """Sync dimension tables from fact tables.
+
+        Extracts unique values from fact tables and upserts them into dimension tables.
+
+        Returns:
+            Dict with counts of rows synced per dimension table
+        """
+        results = {}
+
+        # Sync dim_time from all fact tables
+        try:
+            query = f"""
+            SELECT DISTINCT date
+            FROM `{self.project_id}.{self.dataset_id}.fact_assessment`
+            WHERE date IS NOT NULL
+            UNION DISTINCT
+            SELECT DISTINCT date
+            FROM `{self.project_id}.{self.dataset_id}.fact_intervention`
+            WHERE date IS NOT NULL
+            UNION DISTINCT
+            SELECT DISTINCT date
+            FROM `{self.project_id}.{self.dataset_id}.fact_attendance`
+            WHERE date IS NOT NULL
+            """
+            query_job = self.client.query(query)
+            dates = [row.date for row in query_job.result()]
+            results["dim_time"] = self.upsert_dimension_time(dates)
+        except Exception as e:
+            logger.warning(f"Could not sync dim_time: {e}")
+            results["dim_time"] = 0
+
+        # Sync dim_region from fact tables
+        try:
+            query = f"""
+            SELECT DISTINCT region_id, CAST(NULL AS STRING) AS region_name
+            FROM `{self.project_id}.{self.dataset_id}.fact_assessment`
+            WHERE region_id IS NOT NULL
+            UNION DISTINCT
+            SELECT DISTINCT region_id, CAST(NULL AS STRING) AS region_name
+            FROM `{self.project_id}.{self.dataset_id}.fact_intervention`
+            WHERE region_id IS NOT NULL
+            UNION DISTINCT
+            SELECT DISTINCT region_id, CAST(NULL AS STRING) AS region_name
+            FROM `{self.project_id}.{self.dataset_id}.fact_attendance`
+            WHERE region_id IS NOT NULL
+            UNION DISTINCT
+            SELECT DISTINCT region_id, CAST(NULL AS STRING) AS region_name
+            FROM `{self.project_id}.{self.dataset_id}.observations`
+            WHERE region_id IS NOT NULL
+            """
+            query_job = self.client.query(query)
+            regions = [{"region_id": row.region_id, "region_name": None} for row in query_job.result()]
+            results["dim_region"] = self.upsert_dimension_regions(regions)
+        except Exception as e:
+            logger.warning(f"Could not sync dim_region: {e}")
+            results["dim_region"] = 0
+
+        # Sync dim_school from fact tables
+        try:
+            query = f"""
+            SELECT DISTINCT school_name, region_id
+            FROM `{self.project_id}.{self.dataset_id}.fact_assessment`
+            WHERE school_name IS NOT NULL
+            UNION DISTINCT
+            SELECT DISTINCT school_name, region_id
+            FROM `{self.project_id}.{self.dataset_id}.fact_intervention`
+            WHERE school_name IS NOT NULL
+            UNION DISTINCT
+            SELECT DISTINCT school_name, region_id
+            FROM `{self.project_id}.{self.dataset_id}.fact_attendance`
+            WHERE school_name IS NOT NULL
+            """
+            query_job = self.client.query(query)
+            schools = [
+                {"school_name": row.school_name, "region_id": row.region_id}
+                for row in query_job.result()
+            ]
+            results["dim_school"] = self.upsert_dimension_schools(schools)
+        except Exception as e:
+            logger.warning(f"Could not sync dim_school: {e}")
+            results["dim_school"] = 0
+
+        logger.info(f"Synced dimensions from fact tables: {results}")
+        return results

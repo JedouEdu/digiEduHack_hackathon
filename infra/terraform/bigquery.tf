@@ -86,6 +86,36 @@ resource "google_bigquery_table" "dim_time" {
 # Fact Tables
 # These tables store transactional data with partitioning and clustering for performance
 
+# Attendance Fact Table
+# Stores student attendance records
+resource "google_bigquery_table" "fact_attendance" {
+  dataset_id = google_bigquery_dataset.core.dataset_id
+  table_id   = "fact_attendance"
+
+  # Partition by date for query performance and cost optimization
+  time_partitioning {
+    type  = "DAY"
+    field = "date"
+  }
+
+  # Cluster by region_id for regional queries
+  clustering = ["region_id"]
+
+  schema = jsonencode([
+    { name = "date", type = "DATE", mode = "REQUIRED" },
+    { name = "region_id", type = "STRING", mode = "REQUIRED" },
+    { name = "school_name", type = "STRING", mode = "NULLABLE" },
+    { name = "student_id", type = "STRING", mode = "NULLABLE" },
+    { name = "student_name", type = "STRING", mode = "NULLABLE" },
+    { name = "present", type = "BOOLEAN", mode = "NULLABLE" },
+    { name = "absent", type = "BOOLEAN", mode = "NULLABLE" },
+    { name = "file_id", type = "STRING", mode = "REQUIRED" },
+    { name = "ingest_timestamp", type = "TIMESTAMP", mode = "REQUIRED" }
+  ])
+
+  depends_on = [google_bigquery_dataset.core]
+}
+
 # Assessment Fact Table
 # Stores student assessment results
 resource "google_bigquery_table" "fact_assessment" {

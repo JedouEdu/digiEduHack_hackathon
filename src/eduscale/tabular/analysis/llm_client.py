@@ -56,7 +56,7 @@ class LLMClient:
             List of parsed entities
             
         This method tries to extract valid JSON objects from partial responses
-        by finding complete entities in the array.
+        by finding complete entities in the array, even if the response is truncated.
         """
         # First, try normal parsing
         try:
@@ -67,60 +67,74 @@ class LLMClient:
         # If that fails, try to extract valid objects from partial JSON
         response = response.strip()
         
-        # Remove leading/trailing brackets if present
+        # Remove leading bracket if present
         if response.startswith('['):
             response = response[1:].strip()
-        if response.endswith(']'):
-            response = response[:-1].strip()
-        if response.endswith(','):
-            response = response[:-1].strip()
         
-        # Try to find complete objects by parsing each potential object
+        # Split by complete objects (objects that end with })
+        # We'll look for patterns like: {"text": "...", "type": "..."}
         entities = []
-        current_obj = ""
-        brace_count = 0
-        in_string = False
-        escape_next = False
         
-        for char in response:
-            if escape_next:
-                current_obj += char
-                escape_next = False
+        # Try to find complete objects by looking for closing braces
+        # that are not inside strings
+        i = 0
+        while i < len(response):
+            # Skip whitespace and commas
+            while i < len(response) and response[i] in ' \n\r\t,':
+                i += 1
+            if i >= len(response):
+                break
+            
+            # Look for opening brace
+            if response[i] != '{':
+                i += 1
                 continue
+            
+            # Find the matching closing brace
+            start = i
+            brace_count = 0
+            in_string = False
+            escape_next = False
+            obj_end = -1
+            
+            for j in range(start, len(response)):
+                char = response[j]
                 
-            if char == '\\':
-                current_obj += char
-                escape_next = True
-                continue
-                
-            if char == '"' and not escape_next:
-                in_string = not in_string
-                current_obj += char
-                continue
-                
-            if not in_string:
-                if char == '{':
-                    brace_count += 1
-                    current_obj += char
-                elif char == '}':
-                    brace_count -= 1
-                    current_obj += char
-                    if brace_count == 0:
-                        # Complete object found
-                        try:
-                            obj = json.loads(current_obj.strip().rstrip(','))
-                            if isinstance(obj, dict) and "text" in obj and "type" in obj:
-                                entities.append(obj)
-                        except json.JSONDecodeError:
-                            pass
-                        current_obj = ""
-                elif char == ',' and brace_count == 0:
-                    # Separator between objects, skip
+                if escape_next:
+                    escape_next = False
                     continue
-                else:
-                    current_obj += char
+                
+                if char == '\\':
+                    escape_next = True
+                    continue
+                
+                if char == '"' and not escape_next:
+                    in_string = not in_string
+                    continue
+                
+                if not in_string:
+                    if char == '{':
+                        brace_count += 1
+                    elif char == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            obj_end = j + 1
+                            break
+            
+            # If we found a complete object, try to parse it
+            if obj_end > start:
+                obj_str = response[start:obj_end]
+                try:
+                    obj = json.loads(obj_str)
+                    if isinstance(obj, dict) and "text" in obj and "type" in obj:
+                        entities.append(obj)
+                except json.JSONDecodeError:
+                    # Object structure looks complete but JSON is invalid, skip it
+                    pass
+                i = obj_end
             else:
-                current_obj += char
+                # Incomplete object, stop here
+                break
         
         # If we have any valid entities, return them
         if entities:
@@ -158,11 +172,11 @@ JSON:"""
 
         try:
             response = self._call_llm(prompt, max_tokens=200)
-            # Try to parse JSON response
+            # Try to parse JSON response (handles incomplete responses)
             entities = self._parse_json_response(response.strip())
 
             if not isinstance(entities, list):
-                logger.warning(f"LLM returned non-list response: {response}")
+                logger.warning(f"LLM returned non-list response: {response[:200]}...")
                 return []
 
             # Validate entity format
@@ -177,7 +191,9 @@ JSON:"""
             return valid_entities
 
         except Exception as e:
-            logger.error(f"Entity extraction failed: {e}")
+            # _parse_json_response should handle JSON errors internally,
+            # but catch any other unexpected errors
+            logger.warning(f"Entity extraction failed: {e}")
             return []
 
     def analyze_sentiment(self, text: str) -> float:
