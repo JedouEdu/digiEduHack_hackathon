@@ -109,7 +109,7 @@
   - Include architecture diagram showing resource relationships
   - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.7, 11.8, 11.9, 11.10_
 
-- [ ] 11. Add BigQuery variables to configuration
+- [x] 11. Add BigQuery variables to configuration
   - Add bigquery_dataset_id variable to variables.tf (string, default "jedouscale_core")
   - Add bigquery_staging_dataset_id variable (string, default "jedouscale_staging")
   - Add bigquery_staging_table_expiration_days variable (number, default 7)
@@ -117,13 +117,13 @@
   - Update terraform.tfvars.example with BigQuery variable examples
   - _Requirements: 15.1, 15.2, 15.3, 15.4, 15.5_
 
-- [ ] 12. Create BigQuery infrastructure configuration
+- [x] 12. Create BigQuery infrastructure configuration
   - Create `bigquery.tf` file in infra/terraform/
   - Add google_project_service resource for "bigquery.googleapis.com"
   - Set disable_on_destroy to false for BigQuery API resource
   - _Requirements: 13.1_
 
-- [ ] 13. Implement BigQuery datasets
+- [x] 13. Implement BigQuery datasets
   - Add google_bigquery_dataset resource for core dataset in bigquery.tf
   - Set dataset_id to var.bigquery_dataset_id
   - Set location to var.region
@@ -137,7 +137,7 @@
   - Add depends_on for google_project_service.bigquery
   - _Requirements: 13.2, 13.3, 13.4, 13.5, 13.6, 13.7, 13.8_
 
-- [ ] 14. Implement dimension tables
+- [x] 14. Implement dimension tables
   - Add google_bigquery_table resource for dim_region in bigquery.tf
   - Define schema with columns: region_id (STRING, REQUIRED), region_name (STRING), from_date (DATE), to_date (DATE)
   - Add google_bigquery_table resource for dim_school
@@ -148,7 +148,7 @@
   - Reference google_bigquery_dataset.core.dataset_id for all dimension tables
   - _Requirements: 14.1, 14.9, 14.10_
 
-- [ ] 15. Implement fact tables with partitioning and clustering
+- [x] 15. Implement fact tables with partitioning and clustering
   - Add google_bigquery_table resource for fact_assessment in bigquery.tf
   - Define schema with columns: date (DATE, REQUIRED), region_id (STRING, REQUIRED), school_name (STRING), student_id (STRING), student_name (STRING), subject (STRING), test_score (FLOAT), file_id (STRING, REQUIRED), ingest_timestamp (TIMESTAMP, REQUIRED)
   - Add time_partitioning block with type "DAY" and field "date"
@@ -160,7 +160,7 @@
   - Reference google_bigquery_dataset.core.dataset_id for all fact tables
   - _Requirements: 14.2, 14.5, 14.6, 14.9, 14.10_
 
-- [ ] 16. Implement observations and ingest_runs tables
+- [x] 16. Implement observations and ingest_runs tables
   - Add google_bigquery_table resource for observations in bigquery.tf
   - Define schema with columns: file_id (STRING, REQUIRED), region_id (STRING, REQUIRED), observation_text (STRING), source_table_type (STRING), ingest_timestamp (TIMESTAMP, REQUIRED)
   - Add time_partitioning block with type "DAY" and field "ingest_timestamp"
@@ -172,7 +172,7 @@
   - Reference google_bigquery_dataset.core.dataset_id for both tables
   - _Requirements: 14.3, 14.4, 14.5, 14.6, 14.7, 14.8, 14.9, 14.10_
 
-- [ ] 17. Add BigQuery outputs
+- [x] 17. Add BigQuery outputs
   - Add bigquery_dataset_id output to outputs.tf with value from google_bigquery_dataset.core.dataset_id
   - Add bigquery_staging_dataset_id output with value from google_bigquery_dataset.staging.dataset_id
   - Add bigquery_dataset_location output with value from google_bigquery_dataset.core.location
@@ -180,7 +180,7 @@
   - Add descriptions for all BigQuery outputs
   - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5_
 
-- [ ] 18. Update README with BigQuery documentation
+- [x] 18. Update README with BigQuery documentation
   - Add BigQuery datasets and tables to provisioned resources list in README.md
   - Document BigQuery variables in configuration reference table
   - Add section explaining BigQuery data warehouse structure
@@ -192,20 +192,20 @@
   - Document integration with Tabular service
   - _Requirements: 11.1, 11.2, 11.7_
 
-- [ ] 19. Add Tabular Service configuration variables
+- [x] 19. Add Tabular Service configuration variables
   - Add tabular_service_name variable to variables.tf (string, default "tabular-service")
   - Add description "Name of the Tabular Cloud Run service"
   - Update terraform.tfvars.example with tabular_service_name example
   - _Requirements: 19.1, 19.2, 19.3, 19.4_
 
-- [ ] 20. Create Tabular Service service account
+- [x] 20. Create Tabular Service service account
   - Add google_service_account resource named "tabular_service" to main.tf or iam.tf
   - Set account_id to "tabular-service"
   - Set display_name to "Tabular Service Account"
   - Set description to "Service account for Tabular Service running on Cloud Run"
   - _Requirements: 17.1, 17.2, 17.3, 17.4_
 
-- [ ] 21. Grant Tabular Service IAM permissions
+- [x] 21. Grant Tabular Service IAM permissions
   - Add google_storage_bucket_iam_member resource for Storage Object Viewer role
   - Grant tabular_service service account access to uploads bucket
   - Add google_project_iam_member resource for BigQuery Data Editor role
@@ -214,7 +214,7 @@
   - Grant tabular_service service account bigquery.jobUser at project level
   - _Requirements: 17.5, 17.6, 17.7_
 
-- [ ] 22. Add Eventarc trigger for text files
+- [x] 22. Add Eventarc trigger for text files
   - Add data source google_cloud_run_service for Tabular service in eventarc.tf
   - Use count with var.enable_eventarc condition
   - Reference var.tabular_service_name for service name
@@ -229,7 +229,7 @@
   - Add depends_on for eventarc API, IAM permissions, and storage bucket
   - _Requirements: 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 18.7, 18.8, 18.9_
 
-- [ ] 23. Update README with Tabular Service documentation
+- [x] 23. Update README with Tabular Service documentation
   - Add Tabular Service to architecture overview
   - Document tabular_service_name variable
   - Document Tabular Service service account and permissions

@@ -115,3 +115,68 @@ resource "google_eventarc_trigger" "storage_trigger" {
     google_storage_bucket.uploads
   ]
 }
+
+# Data source to reference the existing Tabular service
+# Only created when enable_eventarc is true
+data "google_cloud_run_service" "tabular" {
+  count    = var.enable_eventarc ? 1 : 0
+  name     = var.tabular_service_name
+  location = var.region
+  project  = var.project_id
+}
+
+# Grant Eventarc service account permission to invoke Tabular Service
+resource "google_cloud_run_service_iam_member" "eventarc_tabular_invoker" {
+  count    = var.enable_eventarc ? 1 : 0
+  service  = data.google_cloud_run_service.tabular[0].name
+  location = data.google_cloud_run_service.tabular[0].location
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.eventarc_trigger.email}"
+  project  = var.project_id
+}
+
+# Eventarc Trigger for text files
+# Automatically triggers Tabular Service when Transformer produces text output
+resource "google_eventarc_trigger" "text_trigger" {
+  count    = var.enable_eventarc ? 1 : 0
+  name     = "text-files-trigger"
+  location = var.region
+  project  = var.project_id
+
+  # Subscribe to Cloud Storage OBJECT_FINALIZE events
+  matching_criteria {
+    attribute = "type"
+    value     = "google.cloud.storage.object.v1.finalized"
+  }
+
+  # Filter events by bucket name
+  matching_criteria {
+    attribute = "bucket"
+    value     = google_storage_bucket.uploads.name
+  }
+
+  # Filter events by object name pattern "text/*"
+  matching_criteria {
+    attribute = "name"
+    value     = "text/"
+    operator  = "match-path-pattern"
+  }
+
+  # Route events to Tabular Cloud Run service
+  destination {
+    cloud_run_service {
+      service = data.google_cloud_run_service.tabular[0].name
+      region  = data.google_cloud_run_service.tabular[0].location
+    }
+  }
+
+  # Use Eventarc service account for invoking Cloud Run
+  service_account = google_service_account.eventarc_trigger.email
+
+  # Ensure all dependencies are ready
+  depends_on = [
+    google_project_service.eventarc,
+    google_cloud_run_service_iam_member.eventarc_tabular_invoker,
+    google_storage_bucket.uploads
+  ]
+}

@@ -76,3 +76,32 @@ output "eventarc_service_account_email" {
   description = "The email of the Eventarc trigger service account"
   value       = google_service_account.eventarc_trigger.email
 }
+
+# BigQuery Outputs
+output "bigquery_dataset_id" {
+  description = "The ID of the core BigQuery dataset"
+  value       = google_bigquery_dataset.core.dataset_id
+}
+
+output "bigquery_staging_dataset_id" {
+  description = "The ID of the staging BigQuery dataset"
+  value       = google_bigquery_dataset.staging.dataset_id
+}
+
+output "bigquery_dataset_location" {
+  description = "The location of the BigQuery datasets"
+  value       = google_bigquery_dataset.core.location
+}
+
+output "bigquery_tables" {
+  description = "List of created BigQuery table IDs"
+  value = [
+    google_bigquery_table.dim_region.table_id,
+    google_bigquery_table.dim_school.table_id,
+    google_bigquery_table.dim_time.table_id,
+    google_bigquery_table.fact_assessment.table_id,
+    google_bigquery_table.fact_intervention.table_id,
+    google_bigquery_table.observations.table_id,
+    google_bigquery_table.ingest_runs.table_id
+  ]
+}
