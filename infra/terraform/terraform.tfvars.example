@@ -20,6 +20,8 @@ allow_unauthenticated = true
 
 # Storage Configuration
 uploads_bucket_lifecycle_days = 90
+tabular_model_cache_bucket_name = ""
+tabular_model_cache_tmp_retention_days = 7
 
 # Eventarc Configuration
 # Set to false on first run, then true after deploying mime-decoder via GitHub Actions
@@ -41,3 +43,5 @@ bigquery_staging_table_expiration_days = 7
 
 # Tabular Service Configuration
 tabular_service_name = "tabular-service"
+tabular_llm_model_name = "llama3.2:1b"
+tabular_embedding_model_name = "BAAI/bge-m3"

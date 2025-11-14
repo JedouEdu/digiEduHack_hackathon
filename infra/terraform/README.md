@@ -4,6 +4,7 @@ This folder contains Terraform configuration to provision core GCP infrastructur
 
 - **Google Artifact Registry**: Docker repository for container images
 - **Cloud Storage**: Bucket for file uploads with lifecycle management
+- **Shared Model Cache Bucket**: Dedicated GCS bucket that stores Ollama and sentence-transformer artifacts for reuse across Cloud Run instances
 - **Eventarc**: Event-driven automation for file processing
 - **BigQuery**: Data warehouse with dimension and fact tables
 - **IAM Permissions**: Service accounts and access policies

@@ -36,6 +36,14 @@ spec:
       # Service account with BigQuery and GCS permissions
       serviceAccountName: tabular-service@PROJECT_ID.iam.gserviceaccount.com
       
+      # Shared model cache volume (GCS bucket mount)
+      volumes:
+      - name: models
+        csi:
+          driver: gcsfuse.run.googleapis.com
+          volumeAttributes:
+            bucketName: tabular-model-cache
+      
       containers:
       - name: tabular-service
         image: gcr.io/PROJECT_ID/tabular-service:latest
@@ -52,6 +60,11 @@ spec:
           requests:
             cpu: "2000m"
             memory: "4Gi"
+        
+        # Mount shared model cache volume
+        volumeMounts:
+        - name: models
+          mountPath: /models
         
         # Environment variables
         env:
@@ -106,6 +119,22 @@ spec:
         
         - name: LLM_ENABLED
           value: "true"
+        
+        # Shared Model Volume Configuration
+        - name: SHARED_MODEL_VOLUME_ENABLED
+          value: "true"
+        
+        - name: MODEL_CACHE_PATH
+          value: "/models"
+        
+        - name: OLLAMA_MODELS
+          value: "/models/ollama"
+        
+        - name: SENTENCE_TRANSFORMERS_HOME
+          value: "/models/sbert"
+        
+        - name: HUGGINGFACE_HUB_CACHE
+          value: "/models/sbert"
         
         # Ingestion Configuration
         - name: INGEST_MAX_ROWS

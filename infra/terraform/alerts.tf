@@ -1,5 +1,5 @@
-# Cloud Monitoring Alert Policies for Eventarc Integration
-# These alerts monitor event delivery health and notify on failures
+# Cloud Monitoring Alert Policies for Eventarc Integration and Model Cache
+# These alerts monitor event delivery health, model cache efficiency, and notify on failures
 
 # Email notification channel for alerts
 resource "google_monitoring_notification_channel" "eventarc_email" {

@@ -25,6 +25,9 @@ tenacity>=8.2.0
 PyYAML>=6.0.1
 
 # Tabular Service Dependencies
+# CPU-only PyTorch (must be installed BEFORE sentence-transformers)
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.0.0+cpu
 sentence-transformers>=2.3.0  # For BGE-M3 embeddings
 pandas>=2.0.0
 pyarrow>=12.0.0

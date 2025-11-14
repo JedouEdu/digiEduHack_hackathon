@@ -53,6 +53,11 @@ output "uploads_bucket_name" {
   value       = google_storage_bucket.uploads.name
 }
 
+output "tabular_model_cache_bucket_name" {
+  description = "Name of the shared model cache bucket"
+  value       = google_storage_bucket.tabular_model_cache.name
+}
+
 # MIME Decoder Service Information
 # Note: Service is deployed via GitHub Actions, not Terraform
 output "mime_decoder_service_name" {
@@ -75,6 +80,16 @@ output "eventarc_trigger_id" {
 output "eventarc_service_account_email" {
   description = "The email of the Eventarc trigger service account"
   value       = google_service_account.eventarc_trigger.email
+}
+
+output "model_sync_job_name" {
+  description = "Name of the Cloud Run model sync job"
+  value       = google_cloud_run_v2_job.model_sync.name
+}
+
+output "model_sync_job_sa_email" {
+  description = "Service account email for model sync job"
+  value       = google_service_account.model_sync_job.email
 }
 
 # BigQuery Outputs

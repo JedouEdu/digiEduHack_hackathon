@@ -14,7 +14,10 @@ on:
       - 'src/eduscale/tabular/**'
       - 'src/eduscale/api/v1/routes_tabular.py'
       - 'docker/Dockerfile.tabular'
+      - 'docker/start-tabular.sh'
+      - 'docker/model-sync-job.sh'
       - 'config/concepts.yaml'
+      - 'requirements.txt'
       - '.github/workflows/deploy-tabular.yml'
 
 env:
@@ -65,18 +68,29 @@ jobs:
           sed -i "s|PROJECT_ID|${{ env.PROJECT_ID }}|g" infra/tabular-config.yaml
           sed -i "s|BUCKET_NAME|${{ env.PROJECT_ID }}-eduscale-uploads|g" infra/tabular-config.yaml
 
+      - name: Run model sync job (first time or manual)
+        continue-on-error: true
+        run: |
+          echo "Triggering model sync job to populate shared cache..."
+          gcloud run jobs execute tabular-model-sync \
+            --region ${{ env.REGION }} \
+            --wait || echo "⚠️ Sync job failed or not found (expected on first deploy)"
+
       - name: Deploy to Cloud Run
         run: |
           gcloud run services replace infra/tabular-config.yaml \
             --region ${{ env.REGION }} \
             --platform managed
 
-      - name: Set Cloud Run IAM (Eventarc access)
+      - name: Grant Eventarc trigger invoker role
+        continue-on-error: true
         run: |
+          # Grant eventarc-trigger-sa access to invoke Tabular service
           gcloud run services add-iam-policy-binding ${{ env.SERVICE_NAME }} \
             --region ${{ env.REGION }} \
-            --member="serviceAccount:eventarc-trigger@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
-            --role="roles/run.invoker"
+            --member="serviceAccount:eventarc-trigger-sa@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
+            --role="roles/run.invoker" || \
+          echo "⚠️ Could not bind eventarc-trigger-sa (may not exist yet or already bound)"
 
       - name: Get service URL
         id: get-url
