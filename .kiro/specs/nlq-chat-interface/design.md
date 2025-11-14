@@ -1708,8 +1708,14 @@ logger.info("Performance metrics", extra={
 ## Future Enhancements (Out of Scope for MVP)
 
 1. **Conversation History**: Store chat sessions in Firestore with TTL
-2. **Query Caching**: Cache common queries in Redis/Memorystore
+2. **Semantic Query Caching**: Use existing embeddings to cache similar queries
+   - Generate embedding for user question
+   - Check cosine similarity with cached questions
+   - Return cached result if similarity > 0.95
+   - Leverage existing `embed_texts()` from `eduscale.tabular.concepts`
 3. **Query Suggestions**: Suggest questions based on schema and history
+   - Use embeddings to find similar past queries
+   - Cluster common question patterns
 4. **Visualization**: Auto-generate charts from query results (Chart.js, Plotly)
 5. **Multi-Language Support**: Support Czech/English prompts (already supported by Llama 3.1)
 6. **Fine-Tuned Model**: Fine-tune Llama on EduScale-specific queries via Featherless.ai
@@ -1717,6 +1723,37 @@ logger.info("Performance metrics", extra={
 8. **Data Export**: Export results to CSV/Excel
 9. **Collaborative Features**: Share queries with team members
 10. **Advanced Analytics**: Natural language → SQL → Chart in one step
+
+## Note on Embeddings
+
+**Embeddings are available but NOT used in NLQ MVP.** The Featherless.ai LLM handles all NL understanding.
+
+**Existing embedding infrastructure** (from tabular ingestion):
+- **Model**: `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` (768-dim)
+- **Function**: `eduscale.tabular.concepts.embed_texts(texts: list[str]) -> np.ndarray`
+- **Config**: `settings.EMBEDDING_MODEL_NAME`, `settings.EMBEDDING_DIMENSION`
+
+**Could be leveraged for** (future enhancements):
+```python
+from eduscale.tabular.concepts import embed_texts
+from sklearn.metrics.pairwise import cosine_similarity
+
+# Example: Semantic query caching
+user_query_embedding = embed_texts([user_query])[0]
+for cached_query, cached_result in query_cache.items():
+    cached_embedding = embed_texts([cached_query])[0]
+    similarity = cosine_similarity(
+        user_query_embedding.reshape(1, -1),
+        cached_embedding.reshape(1, -1)
+    )[0][0]
+    if similarity > 0.95:
+        return cached_result  # Reuse cached SQL + results
+```
+
+**Why not use embeddings in MVP?**
+- LLM already understands natural language perfectly
+- Embeddings would add complexity without clear MVP benefit
+- Can be added incrementally later for caching/suggestions
 
 ## Success Metrics
 

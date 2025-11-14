@@ -42,8 +42,11 @@ This specification defines the Natural Language to SQL (NL→SQL) Chat Interface
 - **LLM Model**: Llama 3.1 8B Instruct (Meta, via Featherless.ai)
 - **API Client**: OpenAI Python library (already in requirements.txt)
 - **Database**: Google BigQuery
+- **Embeddings**: sentence-transformers (already in app, NOT used in NLQ MVP)
 - **UI**: Vanilla HTML/CSS/JavaScript
 - **Deployment**: Google Cloud Run (standard configuration)
+
+**Note:** The application already has embeddings infrastructure (`sentence-transformers/paraphrase-multilingual-mpnet-base-v2`) used for tabular ingestion and entity resolution, but NLQ MVP doesn't need it - the LLM handles all NL understanding. Embeddings could be added later for query caching/suggestions.
 
 ## Architecture Summary
 

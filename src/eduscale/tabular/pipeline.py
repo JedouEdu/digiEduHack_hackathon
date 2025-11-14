@@ -4,6 +4,7 @@ This module contains the main pipeline logic including frontmatter parsing,
 DataFrame loading, and orchestration of all pipeline stages.
 """
 
+import json
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -995,11 +996,14 @@ def _process_free_form_path(
             dwh_client = DwhClient()
             
             # Convert observation to dict for BigQuery
+            # Convert detected_entities list to JSON string for BigQuery
+            detected_entities_json = json.dumps(observation.detected_entities) if observation.detected_entities else None
+            
             observation_dict = {
                 "file_id": observation.file_id,
                 "region_id": observation.region_id,
                 "text_content": observation.text_content,
-                "detected_entities": observation.detected_entities,
+                "detected_entities": detected_entities_json,
                 "sentiment_score": observation.sentiment_score,
                 "original_content_type": observation.original_content_type,
                 "audio_duration_ms": observation.audio_duration_ms,
@@ -1011,6 +1015,7 @@ def _process_free_form_path(
             
             # Convert targets to dicts for BigQuery
             target_dicts = []
+            ingest_timestamp = observation.ingest_timestamp.isoformat()
             for target in targets:
                 target_dicts.append({
                     "observation_id": target.observation_id,
@@ -1018,6 +1023,7 @@ def _process_free_form_path(
                     "target_id": target.target_id,
                     "relevance_score": target.relevance_score,
                     "confidence": target.confidence,
+                    "ingest_timestamp": ingest_timestamp,
                 })
             
             # Insert to BigQuery

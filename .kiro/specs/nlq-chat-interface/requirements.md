@@ -367,10 +367,25 @@ The interface operates within the existing FastAPI application on Google Cloud R
 - **Featherless.ai API**: Serverless LLM inference (https://featherless.ai)
 - **Llama 3.1 8B Instruct**: Open-source LLM model via Featherless.ai
 - **BigQuery API**: Google Cloud BigQuery for query execution
-- **Python Libraries**: 
+- **Python Libraries**:
   - openai>=1.0.0 (already in requirements.txt, used for Featherless.ai client)
   - google-cloud-bigquery>=3.11.0 (already in requirements.txt)
+  - sentence-transformers (already in requirements.txt, used for embeddings in other modules)
   - All other dependencies already satisfied
+
+### Note on Embeddings
+
+**Embeddings are NOT used in NLQ MVP** - the LLM handles all natural language understanding.
+
+However, embeddings are already available in the application for other purposes:
+- **Model**: `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` (768-dim)
+- **Current use cases**: Tabular ingestion, entity resolution, feedback analysis
+- **Configured via**: `settings.EMBEDDING_MODEL_NAME`, `settings.EMBEDDING_DIMENSION`
+
+**Future enhancements** (out of MVP scope) could leverage embeddings for:
+- Query suggestions (find similar questions)
+- Semantic caching (reuse results for similar queries)
+- Query understanding improvements (entity extraction from questions)
 
 ### Infrastructure Dependencies
 
