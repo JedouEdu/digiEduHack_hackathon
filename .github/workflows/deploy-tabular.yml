@@ -68,14 +68,6 @@ jobs:
           sed -i "s|PROJECT_ID|${{ env.PROJECT_ID }}|g" infra/tabular-config.yaml
           sed -i "s|BUCKET_NAME|${{ env.PROJECT_ID }}-eduscale-uploads|g" infra/tabular-config.yaml
 
-      - name: Run model sync job (first time or manual)
-        continue-on-error: true
-        run: |
-          echo "Triggering model sync job to populate shared cache..."
-          gcloud run jobs execute tabular-model-sync \
-            --region ${{ env.REGION }} \
-            --wait || echo "⚠️ Sync job failed or not found (expected on first deploy)"
-
       - name: Deploy to Cloud Run
         run: |
           gcloud run services replace infra/tabular-config.yaml \
