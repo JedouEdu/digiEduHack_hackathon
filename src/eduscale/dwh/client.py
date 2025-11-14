@@ -38,12 +38,10 @@ class DwhClient:
 
     def __init__(self):
         """Initialize BigQuery client."""
+        self.project_id = settings.bigquery_project
         self.dataset_id = settings.BIGQUERY_DATASET_ID
         self.staging_dataset_id = settings.bigquery_staging_dataset
-        
-        # Initialize BigQuery client (project will be auto-detected from environment if not set)
-        self.client = bigquery.Client()
-        self.project_id = self.client.project
+        self.client = bigquery.Client(project=self.project_id)
 
         logger.info(
             f"Initialized DwhClient: project={self.project_id}, "
