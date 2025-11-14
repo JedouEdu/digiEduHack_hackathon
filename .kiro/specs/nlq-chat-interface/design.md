@@ -2,13 +2,14 @@
 
 ## Overview
 
-The NL→SQL Chat Interface provides a conversational way to query BigQuery analytics data using natural language. The system translates user questions into safe, read-only SQL queries using Llama 3.2 1B via Ollama, executes them against BigQuery, and returns results formatted for display in a simple chat UI.
+The NL→SQL Chat Interface provides a conversational way to query BigQuery analytics data using natural language. The system translates user questions into safe, read-only SQL queries using **Llama 3.1 8B Instruct via Featherless.ai API**, executes them against BigQuery, and returns results formatted for display in a simple chat UI.
 
 This is an MVP implementation focused on:
 - **Simplicity**: Single endpoint, stateless conversation, minimal UI
 - **Safety**: Strict SQL validation, read-only queries, cost controls
-- **Reliability**: Local LLM (no external API dependencies), deterministic prompts
+- **Reliability**: Serverless LLM via Featherless.ai (no local model management), deterministic prompts
 - **Demo-Ready**: 3-5 reliable example queries for pitch presentations
+- **Reusability**: Leverages existing LLMClient pattern from eduscale.tabular.analysis.llm_client
 
 The design integrates seamlessly with the existing FastAPI application architecture, following established patterns for configuration, logging, and API routes.
 
@@ -17,7 +18,7 @@ The design integrates seamlessly with the existing FastAPI application architect
 1. Enable non-technical users to query BigQuery data using natural language
 2. Maintain strict safety controls (read-only, validated SQL)
 3. Provide transparent query generation (show generated SQL to users)
-4. Keep infrastructure simple (local Ollama, no external SaaS dependencies)
+4. Reuse existing infrastructure (Featherless.ai API, existing LLMClient pattern)
 5. Deliver demo-ready feature for hackathon pitch
 
 ### Non-Goals
@@ -26,7 +27,7 @@ The design integrates seamlessly with the existing FastAPI application architect
 - Query result caching or optimization (rely on BigQuery caching)
 - User authentication/authorization (inherit from existing Cloud Run auth)
 - Advanced NLQ features (query suggestions, autocomplete, query history)
-- GPU acceleration for LLM inference (Cloud Run is CPU-only)
+- Local LLM deployment (use external Featherless.ai API)
 
 ## Architecture
 
@@ -69,7 +70,7 @@ The design integrates seamlessly with the existing FastAPI application architect
 │  │  (llm_sql.py)        │          │  (bq_query_engine.py)│   │
 │  │                      │          │                      │   │
 │  │  • Load schema ctx   │          │  • Init BQ client    │   │
-│  │  • Call Ollama       │          │  • Execute SQL       │   │
+│  │  • Call Featherless  │          │  • Execute SQL       │   │
 │  │  • Parse JSON        │          │  • Return rows       │   │
 │  │  • Safety checks     │          │  • Handle errors     │   │
 │  └──────────┬───────────┘          └──────────┬───────────┘   │
@@ -77,13 +78,13 @@ The design integrates seamlessly with the existing FastAPI application architect
 └─────────────┼──────────────────────────────────┼────────────────┘
               │                                  │
               ▼                                  ▼
-    ┌──────────────────┐              ┌──────────────────┐
-    │  Ollama Service  │              │  BigQuery API    │
-    │  (localhost:11434)│             │  (GCP)           │
-    │                  │              │                  │
-    │  Llama 3.2 1B    │              │  Dataset:        │
-    │  (local, CPU)    │              │  jedouscale_core │
-    └──────────────────┘              └──────────────────┘
+    ┌────────────────────────┐       ┌──────────────────┐
+    │  Featherless.ai API    │       │  BigQuery API    │
+    │  (api.featherless.ai)  │       │  (GCP)           │
+    │                        │       │                  │
+    │  Llama 3.1 8B Instruct │       │  Dataset:        │
+    │  (serverless)          │       │  jedouscale_core │
+    └────────────────────────┘       └──────────────────┘
 ```
 
 ### Component Diagram
