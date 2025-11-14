@@ -48,6 +48,13 @@ class FrontmatterData:
     sheet_count: int | None
     slide_count: int | None
 
+    # Audio-specific metadata (from 'audio' section)
+    audio_duration_seconds: float | None
+    audio_sample_rate: int | None
+    audio_channels: int | None
+    audio_confidence: float | None
+    audio_language: str | None
+
 
 def parse_frontmatter(text_content: str) -> tuple[FrontmatterData | None, str]:
     """Parse YAML frontmatter and return metadata + clean text.
@@ -63,20 +70,40 @@ def parse_frontmatter(text_content: str) -> tuple[FrontmatterData | None, str]:
         ---
         file_id: "abc123"
         region_id: "region-01"
-        ...
+        text_uri: "gs://bucket/text/abc123.txt"
+        event_id: "cloudevent-xyz"
+        file_category: "text" | "audio" | "tabular"
+        
         original:
           filename: "doc.pdf"
           content_type: "application/pdf"
-          ...
+          size_bytes: 123456
+          bucket: "bucket-name"
+          object_path: "uploads/region/abc123.pdf"
+          uploaded_at: "2025-01-14T10:30:00Z"
+        
         extraction:
-          method: "pdfplumber"
-          ...
+          method: "pdfplumber" | "google-speech-to-text"
+          timestamp: "2025-01-14T10:31:00Z"
+          duration_ms: 1234
+          success: true
+        
         content:
           text_length: 1234
-          ...
+          word_count: 987
+          character_count: 1234
+        
         document:
           page_count: 5
-          ...
+          sheet_count: 3
+          slide_count: 10
+        
+        audio:
+          duration_seconds: 123.45
+          sample_rate: 16000
+          channels: 1
+          confidence: 0.95
+          language: "en-US"
         ---
         <actual text content>
     """
@@ -141,6 +168,14 @@ def parse_frontmatter(text_content: str) -> tuple[FrontmatterData | None, str]:
         sheet_count = document.get("sheet_count")
         slide_count = document.get("slide_count")
 
+        # Extract nested 'audio' section
+        audio = data.get("audio", {})
+        audio_duration_seconds = audio.get("duration_seconds")
+        audio_sample_rate = audio.get("sample_rate")
+        audio_channels = audio.get("channels")
+        audio_confidence = audio.get("confidence")
+        audio_language = audio.get("language")
+
         frontmatter = FrontmatterData(
             file_id=file_id,
             region_id=region_id,
@@ -163,13 +198,25 @@ def parse_frontmatter(text_content: str) -> tuple[FrontmatterData | None, str]:
             page_count=page_count,
             sheet_count=sheet_count,
             slide_count=slide_count,
+            audio_duration_seconds=audio_duration_seconds,
+            audio_sample_rate=audio_sample_rate,
+            audio_channels=audio_channels,
+            audio_confidence=audio_confidence,
+            audio_language=audio_language,
         )
 
-        logger.info(
+        # Log parsed metadata
+        log_msg = (
             f"Parsed frontmatter for file_id={file_id}, "
+            f"category={file_category}, "
             f"content_type={original_content_type}, "
             f"text_length={text_length}"
         )
+        if audio_duration_seconds is not None:
+            log_msg += f", audio_duration={audio_duration_seconds:.2f}s"
+        if page_count is not None:
+            log_msg += f", pages={page_count}"
+        logger.info(log_msg)
 
         return frontmatter, clean_text.strip()
 
@@ -606,6 +653,11 @@ def process_free_form_text(
         logger.info("LLM disabled, skipping sentiment analysis")
 
     # Step 4: Create observation record with metadata
+    # Convert audio duration from seconds to milliseconds if available
+    audio_duration_ms = None
+    if frontmatter.audio_duration_seconds is not None:
+        audio_duration_ms = int(frontmatter.audio_duration_seconds * 1000)
+
     observation = ObservationRecord(
         file_id=frontmatter.file_id,
         region_id=frontmatter.region_id,
@@ -613,19 +665,25 @@ def process_free_form_text(
         detected_entities=detected_entities,
         sentiment_score=sentiment_score,
         original_content_type=frontmatter.original_content_type,
-        audio_duration_ms=None,  # TODO: Extract from frontmatter if available
-        audio_confidence=None,
-        audio_language=None,
+        audio_duration_ms=audio_duration_ms,
+        audio_confidence=frontmatter.audio_confidence,
+        audio_language=frontmatter.audio_language,
         page_count=frontmatter.page_count,
         ingest_timestamp=datetime.now(timezone.utc),
     )
 
-    logger.info(
+    # Log observation creation with metadata
+    log_msg = (
         f"Created observation record: file_id={observation.file_id}, "
         f"entities={len(detected_entities)}, "
         f"targets={len(observation_targets)}, "
         f"sentiment={sentiment_score:.3f}"
     )
+    if audio_duration_ms:
+        log_msg += f", audio_duration={audio_duration_ms}ms"
+    if frontmatter.audio_language:
+        log_msg += f", audio_lang={frontmatter.audio_language}"
+    logger.info(log_msg)
 
     return observation, observation_targets
 
