@@ -20,13 +20,24 @@ This is the foundational infrastructure skeleton for EduScale Engine. The curren
 - Docker containerization with multi-stage builds
 - Local development environment with hot reload
 
-### Future Features
+### Implemented Features
 
 - File upload API for educational data
 - ML-based data ingestion pipelines
 - BigQuery integration for data warehousing
-- Natural language to SQL query interface
+- **Natural language to SQL query interface** (NLQ Chat) - [Documentation](docs/NLQ_FEATURE.md)
 - Data quality validation and cleaning
+
+#### Natural Language Query (NLQ) Chat
+
+Ask questions about your educational data in plain English:
+- **Chat UI**: Access at `/nlq/chat` for interactive querying
+- **REST API**: POST to `/api/v1/nlq/chat` for programmatic access
+- **Powered by**: Llama 3.1 8B Instruct via Featherless.ai API
+- **Safe & Validated**: Read-only queries with multi-layer safety checks
+- **Demo Ready**: 5 pre-tested queries for presentations
+
+See [NLQ Feature Documentation](docs/NLQ_FEATURE.md) for detailed setup and usage.
 
 ## Getting Started
 
