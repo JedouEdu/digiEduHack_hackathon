@@ -56,10 +56,15 @@ class Settings(BaseSettings):
     CONCEPT_CATALOG_PATH: str = "./config/concepts.yaml"
 
     # AI Models Configuration
-    EMBEDDING_MODEL_NAME: str = "BAAI/bge-m3"  # BGE-M3 for embeddings
-    LLM_MODEL_NAME: str = "llama3.2:1b"  # Llama 3.2 1B via Ollama
-    LLM_ENDPOINT: str = "http://localhost:11434"  # Ollama in same container
+    # LLM via Featherless.ai (serverless, open-source)
+    FEATHERLESS_API_KEY: str = ""  # API key from featherless.ai
+    FEATHERLESS_BASE_URL: str = "https://api.featherless.ai/v1"
+    FEATHERLESS_LLM_MODEL: str = "meta-llama/Meta-Llama-3.1-8B-Instruct"  # Llama 3.1 8B for entity extraction
     LLM_ENABLED: bool = True
+    
+    # Embeddings via sentence-transformers (local)
+    EMBEDDING_MODEL_NAME: str = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"  # 470MB, 50+ languages
+    EMBEDDING_DIMENSION: int = 768
 
     # Ingestion Configuration
     INGEST_MAX_ROWS: int = 200_000

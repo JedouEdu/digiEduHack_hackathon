@@ -1,5 +1,5 @@
 # Cloud Run configuration for Tabular Service
-# This service requires more resources due to AI models (BGE-M3 + Llama 3.2 1B)
+# This service uses Vertex AI for AI models (Llama + Embeddings)
 
 apiVersion: serving.knative.dev/v1
 kind: Service
@@ -15,7 +15,7 @@ spec:
     metadata:
       annotations:
         # Resource configuration
-        run.googleapis.com/cpu-throttling: "false"  # Don't throttle CPU (needed for AI models)
+        run.googleapis.com/cpu-throttling: "false"  # Don't throttle CPU
         run.googleapis.com/startup-cpu-boost: "true"  # Boost CPU during startup
         
         # Scaling configuration
@@ -27,22 +27,14 @@ spec:
         run.googleapis.com/execution-environment: gen2
         
     spec:
-      # Lower concurrency due to memory-intensive AI models
-      containerConcurrency: 5
+      # Standard concurrency for stateless service
+      containerConcurrency: 10
       
-      # Longer timeout for AI model loading
+      # Standard timeout
       timeoutSeconds: 300
       
-      # Service account with BigQuery and GCS permissions
+      # Service account with BigQuery, GCS, and Vertex AI permissions
       serviceAccountName: tabular-service@PROJECT_ID.iam.gserviceaccount.com
-      
-      # Shared model cache volume (GCS bucket mount)
-      volumes:
-      - name: models
-        csi:
-          driver: gcsfuse.run.googleapis.com
-          volumeAttributes:
-            bucketName: jedouedu-tabular-model-cache
       
       containers:
       - name: tabular-service
@@ -52,19 +44,14 @@ spec:
         - name: http1
           containerPort: 8080
         
-        # Resource limits (4GB RAM, 2 vCPUs minimum for AI models)
+        # Resource limits (2GB RAM, 1 vCPU - much lighter without local AI models)
         resources:
           limits:
-            cpu: "2000m"
-            memory: "4Gi"
+            cpu: "1000m"
+            memory: "2Gi"
           requests:
-            cpu: "2000m"
-            memory: "4Gi"
-        
-        # Mount shared model cache volume
-        volumeMounts:
-        - name: models
-          mountPath: /models
+            cpu: "1000m"
+            memory: "2Gi"
         
         # Environment variables
         env:
@@ -107,34 +94,25 @@ spec:
         - name: CONCEPT_CATALOG_PATH
           value: "/app/config/concepts.yaml"
         
-        # AI Models Configuration
-        - name: EMBEDDING_MODEL_NAME
-          value: "BAAI/bge-m3"
+        # Featherless.ai Configuration (OpenAI-compatible API for open-source models)
+        - name: FEATHERLESS_API_KEY
+          value: "FEATHERLESS_API_KEY_PLACEHOLDER"  # Replace with actual API key
         
-        - name: LLM_MODEL_NAME
-          value: "llama3.2:1b"
+        - name: FEATHERLESS_BASE_URL
+          value: "https://api.featherless.ai/v1"
         
-        - name: LLM_ENDPOINT
-          value: "http://localhost:11434"
+        - name: FEATHERLESS_LLM_MODEL
+          value: "meta-llama/Meta-Llama-3.1-8B-Instruct"
         
         - name: LLM_ENABLED
           value: "true"
         
-        # Shared Model Volume Configuration
-        - name: SHARED_MODEL_VOLUME_ENABLED
-          value: "true"
+        # Embeddings (local sentence-transformers)
+        - name: EMBEDDING_MODEL_NAME
+          value: "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
         
-        - name: MODEL_CACHE_PATH
-          value: "/models"
-        
-        - name: OLLAMA_MODELS
-          value: "/models/ollama"
-        
-        - name: SENTENCE_TRANSFORMERS_HOME
-          value: "/models/sbert"
-        
-        - name: HUGGINGFACE_HUB_CACHE
-          value: "/models/sbert"
+        - name: EMBEDDING_DIMENSION
+          value: "768"
         
         # Ingestion Configuration
         - name: INGEST_MAX_ROWS
@@ -168,7 +146,7 @@ spec:
           httpGet:
             path: /health
             port: 8080
-          initialDelaySeconds: 60
+          initialDelaySeconds: 30
           periodSeconds: 30
           timeoutSeconds: 10
           failureThreshold: 3
@@ -177,7 +155,7 @@ spec:
           httpGet:
             path: /health
             port: 8080
-          initialDelaySeconds: 30
+          initialDelaySeconds: 15
           periodSeconds: 10
           timeoutSeconds: 10
-          failureThreshold: 6
+          failureThreshold: 3

@@ -1,14 +1,14 @@
-"""LLM client for entity extraction and sentiment analysis using Ollama.
+"""LLM client for entity extraction and sentiment analysis using Featherless.ai.
 
-This module provides an interface to Ollama for LLM-based tasks like
-entity extraction from text and sentiment analysis.
+This module provides an interface to Featherless.ai for LLM-based tasks like
+entity extraction from text and sentiment analysis using Llama 3.3 70B.
 """
 
 import json
 import logging
 from typing import Any
 
-import requests
+from openai import OpenAI
 
 from eduscale.core.config import settings
 
@@ -16,21 +16,35 @@ logger = logging.getLogger(__name__)
 
 
 class LLMClient:
-    """Client for interacting with Ollama LLM API."""
+    """Client for interacting with Featherless.ai LLM API (Llama via OpenAI-compatible endpoint)."""
 
-    def __init__(self, endpoint: str | None = None, model: str | None = None):
+    def __init__(self, model: str | None = None):
         """Initialize LLM client.
 
         Args:
-            endpoint: Ollama API endpoint (default: from settings)
             model: Model name (default: from settings)
         """
-        self.endpoint = endpoint or settings.LLM_ENDPOINT
-        self.model = model or settings.LLM_MODEL_NAME
+        self.model_name = model or settings.FEATHERLESS_LLM_MODEL
         self.enabled = settings.LLM_ENABLED
+        self._client = None
 
         if not self.enabled:
             logger.warning("LLM is disabled in settings")
+        else:
+            self._init_client()
+
+    def _init_client(self):
+        """Initialize Featherless.ai client."""
+        try:
+            logger.info(f"Initializing Featherless.ai LLM client: {self.model_name}")
+            self._client = OpenAI(
+                base_url=settings.FEATHERLESS_BASE_URL,
+                api_key=settings.FEATHERLESS_API_KEY,
+            )
+            logger.info(f"Featherless.ai LLM client initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize Featherless.ai LLM: {e}")
+            raise
 
     def extract_entities(self, text: str) -> list[dict[str, str]]:
         """Extract named entities from text using LLM.
@@ -42,7 +56,7 @@ class LLMClient:
             List of entities with format: [{"text": "name", "type": "person|subject|location"}]
             Returns empty list if LLM is disabled or extraction fails
         """
-        if not self.enabled:
+        if not self.enabled or self._client is None:
             logger.debug("LLM disabled, skipping entity extraction")
             return []
 
@@ -58,7 +72,7 @@ Text: {text}
 JSON:"""
 
         try:
-            response = self._call_ollama(prompt, max_tokens=200)
+            response = self._call_llm(prompt, max_tokens=200)
             # Try to parse JSON response
             entities = json.loads(response.strip())
 
@@ -94,7 +108,7 @@ JSON:"""
             Sentiment score from -1.0 (very negative) to +1.0 (very positive)
             Returns 0.0 if LLM is disabled or analysis fails
         """
-        if not self.enabled:
+        if not self.enabled or self._client is None:
             logger.debug("LLM disabled, skipping sentiment analysis")
             return 0.0
 
@@ -110,7 +124,7 @@ Text: {text}
 Score:"""
 
         try:
-            response = self._call_ollama(prompt, max_tokens=10)
+            response = self._call_llm(prompt, max_tokens=10)
             score = float(response.strip())
 
             # Clamp to valid range
@@ -126,8 +140,8 @@ Score:"""
             logger.error(f"Sentiment analysis failed: {e}")
             return 0.0
 
-    def _call_ollama(self, prompt: str, max_tokens: int = 500) -> str:
-        """Internal method to call Ollama API.
+    def _call_llm(self, prompt: str, max_tokens: int = 500) -> str:
+        """Internal method to call Featherless.ai LLM API.
 
         Args:
             prompt: Prompt text
@@ -137,27 +151,20 @@ Score:"""
             Generated text response
 
         Raises:
-            requests.RequestException: If API call fails
+            Exception: If API call fails
         """
         try:
-            response = requests.post(
-                f"{self.endpoint}/api/generate",
-                json={
-                    "model": self.model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "num_predict": max_tokens,
-                        "temperature": 0.1,  # Low temperature for deterministic outputs
-                    },
-                },
-                timeout=30,
+            response = self._client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=max_tokens,
+                temperature=0.1,  # Low temperature for deterministic outputs
             )
-            response.raise_for_status()
 
-            result = response.json()
-            return result.get("response", "")
+            return response.choices[0].message.content
 
-        except requests.RequestException as e:
-            logger.error(f"Ollama API call failed: {e}")
+        except Exception as e:
+            logger.error(f"Featherless.ai LLM call failed: {e}")
             raise
