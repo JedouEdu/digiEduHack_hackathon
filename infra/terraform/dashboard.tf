@@ -2,7 +2,7 @@
 # Provides visibility into event delivery metrics and MIME Decoder performance
 
 resource "google_monitoring_dashboard" "eventarc_dashboard" {
-  count          = var.enable_eventarc && var.enable_monitoring_dashboard ? 1 : 0
+  count = var.enable_eventarc && var.enable_monitoring_dashboard ? 1 : 0
   dashboard_json = jsonencode({
     displayName = "Eventarc Integration Dashboard"
     mosaicLayout = {
@@ -87,9 +87,9 @@ resource "google_monitoring_dashboard" "eventarc_dashboard" {
                     }
                   }
                 }
-                plotType         = "LINE"
-                targetAxis       = "Y1"
-                legendTemplate   = "Success"
+                plotType       = "LINE"
+                targetAxis     = "Y1"
+                legendTemplate = "Success"
               }]
               timeshiftDuration = "0s"
               yAxis = {
@@ -121,9 +121,9 @@ resource "google_monitoring_dashboard" "eventarc_dashboard" {
                     }
                   }
                 }
-                plotType         = "LINE"
-                targetAxis       = "Y1"
-                legendTemplate   = "Failures"
+                plotType       = "LINE"
+                targetAxis     = "Y1"
+                legendTemplate = "Failures"
               }]
               timeshiftDuration = "0s"
               yAxis = {
@@ -134,10 +134,10 @@ resource "google_monitoring_dashboard" "eventarc_dashboard" {
                 mode = "COLOR"
               }
               thresholds = [{
-                value = 0.1
-                color = "RED"
+                value     = 0.1
+                color     = "RED"
                 direction = "ABOVE"
-                label = "High Failure Rate (>10%)"
+                label     = "High Failure Rate (>10%)"
               }]
             }
           }
@@ -157,45 +157,45 @@ resource "google_monitoring_dashboard" "eventarc_dashboard" {
                     timeSeriesFilter = {
                       filter = "metric.type=\"eventarc.googleapis.com/trigger/delivery_latency\" resource.type=\"eventarc.googleapis.com/trigger\" resource.label.trigger_name=\"${google_eventarc_trigger.storage_trigger[0].name}\""
                       aggregation = {
-                        alignmentPeriod     = "60s"
-                        perSeriesAligner    = "ALIGN_DELTA"
-                        crossSeriesReducer  = "REDUCE_PERCENTILE_50"
+                        alignmentPeriod    = "60s"
+                        perSeriesAligner   = "ALIGN_DELTA"
+                        crossSeriesReducer = "REDUCE_PERCENTILE_50"
                       }
                     }
                   }
-                  plotType         = "LINE"
-                  targetAxis       = "Y1"
-                  legendTemplate   = "P50"
+                  plotType       = "LINE"
+                  targetAxis     = "Y1"
+                  legendTemplate = "P50"
                 },
                 {
                   timeSeriesQuery = {
                     timeSeriesFilter = {
                       filter = "metric.type=\"eventarc.googleapis.com/trigger/delivery_latency\" resource.type=\"eventarc.googleapis.com/trigger\" resource.label.trigger_name=\"${google_eventarc_trigger.storage_trigger[0].name}\""
                       aggregation = {
-                        alignmentPeriod     = "60s"
-                        perSeriesAligner    = "ALIGN_DELTA"
-                        crossSeriesReducer  = "REDUCE_PERCENTILE_95"
+                        alignmentPeriod    = "60s"
+                        perSeriesAligner   = "ALIGN_DELTA"
+                        crossSeriesReducer = "REDUCE_PERCENTILE_95"
                       }
                     }
                   }
-                  plotType         = "LINE"
-                  targetAxis       = "Y1"
-                  legendTemplate   = "P95"
+                  plotType       = "LINE"
+                  targetAxis     = "Y1"
+                  legendTemplate = "P95"
                 },
                 {
                   timeSeriesQuery = {
                     timeSeriesFilter = {
                       filter = "metric.type=\"eventarc.googleapis.com/trigger/delivery_latency\" resource.type=\"eventarc.googleapis.com/trigger\" resource.label.trigger_name=\"${google_eventarc_trigger.storage_trigger[0].name}\""
                       aggregation = {
-                        alignmentPeriod     = "60s"
-                        perSeriesAligner    = "ALIGN_DELTA"
-                        crossSeriesReducer  = "REDUCE_PERCENTILE_99"
+                        alignmentPeriod    = "60s"
+                        perSeriesAligner   = "ALIGN_DELTA"
+                        crossSeriesReducer = "REDUCE_PERCENTILE_99"
                       }
                     }
                   }
-                  plotType         = "LINE"
-                  targetAxis       = "Y1"
-                  legendTemplate   = "P99"
+                  plotType       = "LINE"
+                  targetAxis     = "Y1"
+                  legendTemplate = "P99"
                 }
               ]
               timeshiftDuration = "0s"
@@ -207,10 +207,10 @@ resource "google_monitoring_dashboard" "eventarc_dashboard" {
                 mode = "COLOR"
               }
               thresholds = [{
-                value = 30000
-                color = "YELLOW"
+                value     = 30000
+                color     = "YELLOW"
                 direction = "ABOVE"
-                label = "High Latency (>30s)"
+                label     = "High Latency (>30s)"
               }]
             }
           }
@@ -258,9 +258,9 @@ resource "google_monitoring_dashboard" "eventarc_dashboard" {
                   timeSeriesFilter = {
                     filter = "metric.type=\"run.googleapis.com/request_latencies\" resource.type=\"cloud_run_revision\" resource.label.service_name=\"${var.mime_decoder_service_name}\""
                     aggregation = {
-                      alignmentPeriod     = "60s"
-                      perSeriesAligner    = "ALIGN_DELTA"
-                      crossSeriesReducer  = "REDUCE_PERCENTILE_99"
+                      alignmentPeriod    = "60s"
+                      perSeriesAligner   = "ALIGN_DELTA"
+                      crossSeriesReducer = "REDUCE_PERCENTILE_99"
                     }
                   }
                 }
@@ -302,10 +302,10 @@ resource "google_monitoring_dashboard" "eventarc_dashboard" {
                 scale = "LINEAR"
               }
               thresholds = [{
-                value = 0.8
-                color = "YELLOW"
+                value     = 0.8
+                color     = "YELLOW"
                 direction = "ABOVE"
-                label = "High CPU (>80%)"
+                label     = "High CPU (>80%)"
               }]
             }
           }
@@ -337,10 +337,10 @@ resource "google_monitoring_dashboard" "eventarc_dashboard" {
                 scale = "LINEAR"
               }
               thresholds = [{
-                value = 0.8
-                color = "YELLOW"
+                value     = 0.8
+                color     = "YELLOW"
                 direction = "ABOVE"
-                label = "High Memory (>80%)"
+                label     = "High Memory (>80%)"
               }]
             }
           }

@@ -135,3 +135,29 @@ variable "enable_monitoring_dashboard" {
   type        = bool
   default     = false
 }
+
+# BigQuery Configuration
+variable "bigquery_dataset_id" {
+  description = "The BigQuery dataset ID for core tables (dimensions and facts)"
+  type        = string
+  default     = "jedouscale_core"
+}
+
+variable "bigquery_staging_dataset_id" {
+  description = "The BigQuery dataset ID for staging tables (temporary data loading)"
+  type        = string
+  default     = "jedouscale_staging"
+}
+
+variable "bigquery_staging_table_expiration_days" {
+  description = "Number of days before staging tables are automatically deleted"
+  type        = number
+  default     = 7
+}
+
+# Tabular Service Configuration
+variable "tabular_service_name" {
+  description = "Name of the Tabular Cloud Run service"
+  type        = string
+  default     = "tabular-service"
+}

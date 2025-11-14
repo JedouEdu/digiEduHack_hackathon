@@ -77,16 +77,9 @@ resource "google_eventarc_trigger" "storage_trigger" {
     value     = google_storage_bucket.uploads.name
   }
 
-  # Optional: Filter events by object name prefix
-  # Only applied if event_filter_prefix is not empty
-  dynamic "matching_criteria" {
-    for_each = var.event_filter_prefix != "" ? [1] : []
-    content {
-      attribute = "bucket"
-      value     = google_storage_bucket.uploads.name
-      operator  = "match-path-pattern"
-    }
-  }
+  # Note: Direct Cloud Storage events only support filtering by 'type' and 'bucket'
+  # Path-based filtering (e.g., uploads/* vs text/*) must be done in the service code
+  # The MIME Decoder service validates paths and returns HTTP 400 for invalid paths
 
   # Route events to MIME Decoder Cloud Run service
   destination {
@@ -112,6 +105,67 @@ resource "google_eventarc_trigger" "storage_trigger" {
   depends_on = [
     google_project_service.eventarc,
     google_cloud_run_service_iam_member.eventarc_invoker,
+    google_storage_bucket.uploads
+  ]
+}
+
+# Data source to reference the existing Tabular service
+# Only created when enable_eventarc is true
+data "google_cloud_run_service" "tabular" {
+  count    = var.enable_eventarc ? 1 : 0
+  name     = var.tabular_service_name
+  location = var.region
+  project  = var.project_id
+}
+
+# Grant Eventarc service account permission to invoke Tabular Service
+resource "google_cloud_run_service_iam_member" "eventarc_tabular_invoker" {
+  count    = var.enable_eventarc ? 1 : 0
+  service  = data.google_cloud_run_service.tabular[0].name
+  location = data.google_cloud_run_service.tabular[0].location
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.eventarc_trigger.email}"
+  project  = var.project_id
+}
+
+# Eventarc Trigger for text files
+# Automatically triggers Tabular Service when Transformer produces text output
+resource "google_eventarc_trigger" "text_trigger" {
+  count    = var.enable_eventarc ? 1 : 0
+  name     = "text-files-trigger"
+  location = var.region
+  project  = var.project_id
+
+  # Subscribe to Cloud Storage OBJECT_FINALIZE events
+  matching_criteria {
+    attribute = "type"
+    value     = "google.cloud.storage.object.v1.finalized"
+  }
+
+  # Filter events by bucket name
+  matching_criteria {
+    attribute = "bucket"
+    value     = google_storage_bucket.uploads.name
+  }
+
+  # Note: Direct Cloud Storage events only support filtering by 'type' and 'bucket'
+  # Path-based filtering must be done in the Tabular service code
+
+  # Route events to Tabular Cloud Run service
+  destination {
+    cloud_run_service {
+      service = data.google_cloud_run_service.tabular[0].name
+      region  = data.google_cloud_run_service.tabular[0].location
+    }
+  }
+
+  # Use Eventarc service account for invoking Cloud Run
+  service_account = google_service_account.eventarc_trigger.email
+
+  # Ensure all dependencies are ready
+  depends_on = [
+    google_project_service.eventarc,
+    google_cloud_run_service_iam_member.eventarc_tabular_invoker,
     google_storage_bucket.uploads
   ]
 }

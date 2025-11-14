@@ -5,6 +5,7 @@ This folder contains Terraform configuration to provision core GCP infrastructur
 - **Google Artifact Registry**: Docker repository for container images
 - **Cloud Storage**: Bucket for file uploads with lifecycle management
 - **Eventarc**: Event-driven automation for file processing
+- **BigQuery**: Data warehouse with dimension and fact tables
 - **IAM Permissions**: Service accounts and access policies
 - **Cloud Monitoring**: Dashboard for event delivery metrics
 
@@ -185,6 +186,9 @@ terraform apply -var="image_tag=v1.0.0"
 | `memory` | `512Mi` | Memory allocation (512Mi, 1Gi, etc.) |
 | `container_port` | `8080` | Container port (must match app) |
 | `allow_unauthenticated` | `true` | Allow public access |
+| `bigquery_dataset_id` | `jedouscale_core` | BigQuery dataset ID for core tables |
+| `bigquery_staging_dataset_id` | `jedouscale_staging` | BigQuery dataset ID for staging tables |
+| `bigquery_staging_table_expiration_days` | `7` | Days before staging tables auto-delete |
 
 ## Environment Variables
 
@@ -450,6 +454,8 @@ See `monitoring.md` for detailed monitoring configuration.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `mime_decoder_service_name` | `mime-decoder` | Name of MIME Decoder Cloud Run service |
+| `transformer_service_name` | `transformer` | Name of Transformer Cloud Run service |
+| `tabular_service_name` | `tabular-service` | Name of Tabular Cloud Run service |
 | `eventarc_trigger_name` | `storage-upload-trigger` | Name of Eventarc trigger |
 | `event_filter_prefix` | `""` (all files) | Optional prefix filter for events |
 | `enable_monitoring_alerts` | `false` | Enable alert policies |
@@ -506,11 +512,180 @@ gcloud logging read \
    - Events and data never leave configured region
    - Complies with GDPR data residency requirements
 
+## BigQuery Data Warehouse
+
+The infrastructure includes a complete BigQuery data warehouse for storing and analyzing educational data.
+
+### Data Warehouse Structure
+
+The BigQuery configuration creates two datasets:
+
+1. **Core Dataset** (`jedouscale_core`): Permanent storage for dimension and fact tables
+2. **Staging Dataset** (`jedouscale_staging`): Temporary tables for data loading (auto-expire after 7 days)
+
+### Tables
+
+#### Dimension Tables
+
+**dim_region**: Regional information
+- `region_id` (STRING, REQUIRED): Unique region identifier
+- `region_name` (STRING): Human-readable region name
+- `from_date` (DATE): Validity start date
+- `to_date` (DATE): Validity end date
+
+**dim_school**: School information
+- `school_name` (STRING, REQUIRED): School name
+- `region_id` (STRING): Associated region
+- `from_date` (DATE): Validity start date
+- `to_date` (DATE): Validity end date
+
+**dim_time**: Time dimension for temporal analysis
+- `date` (DATE, REQUIRED): Calendar date
+- `year` (INTEGER): Year
+- `month` (INTEGER): Month (1-12)
+- `day` (INTEGER): Day of month
+- `quarter` (INTEGER): Quarter (1-4)
+- `day_of_week` (INTEGER): Day of week (0-6)
+
+#### Fact Tables
+
+**fact_assessment**: Student assessment results
+- Partitioned by `date` (DAY)
+- Clustered by `region_id`
+- Columns: date, region_id, school_name, student_id, student_name, subject, test_score, file_id, ingest_timestamp
+
+**fact_intervention**: Educational intervention data
+- Partitioned by `date` (DAY)
+- Clustered by `region_id`
+- Columns: date, region_id, school_name, intervention_type, participants_count, file_id, ingest_timestamp
+
+#### Supporting Tables
+
+**observations**: Unstructured/mixed data
+- Partitioned by `ingest_timestamp` (DAY)
+- Clustered by `region_id`
+- Stores free-form text and data that doesn't fit into fact tables
+
+**ingest_runs**: Pipeline execution tracking
+- Partitioned by `created_at` (DAY)
+- Clustered by `region_id`, `status`
+- Tracks all data ingestion operations for audit and debugging
+
+### Partitioning and Clustering Strategy
+
+All fact tables use:
+- **Partitioning**: By date fields for query performance and cost optimization
+- **Clustering**: By `region_id` for efficient regional queries
+
+Benefits:
+- Reduced query costs (only scan relevant partitions)
+- Improved query performance
+- Automatic partition pruning
+
+### Integration with Tabular Service
+
+The BigQuery tables are designed to work with the Tabular Service:
+
+1. Transformer extracts text from files → saves to `gs://bucket/text/`
+2. Eventarc triggers Tabular Service on text file creation
+3. Tabular Service:
+   - Reads text file from Cloud Storage
+   - Infers schema and table type
+   - Normalizes data
+   - Loads into appropriate BigQuery tables
+4. Data available for analysis in BigQuery
+
+### Tabular Service Configuration
+
+The infrastructure provisions:
+
+**Service Account** (`tabular-service`):
+- Storage Object Viewer role on uploads bucket (read text files)
+- BigQuery Data Editor role at project level (write to tables)
+- BigQuery Job User role at project level (execute queries)
+
+**Eventarc Trigger** (`text-files-trigger`):
+- Monitors `gs://bucket/text/*` for new files
+- Automatically invokes Tabular Service with CloudEvent
+- Includes file metadata (bucket, name, size, etc.)
+
+**Deployment Order**:
+1. Deploy base infrastructure with `enable_eventarc=false`
+2. Deploy Tabular Service via GitHub Actions
+3. Enable Eventarc with `enable_eventarc=true`
+
+**Event Flow**:
+```
+Transformer → gs://bucket/text/file_id.txt
+    ↓ (OBJECT_FINALIZE event)
+Eventarc text-files-trigger
+    ↓ (HTTP POST with CloudEvent)
+Tabular Service (Cloud Run)
+    ↓ (schema inference & normalization)
+BigQuery tables (fact_assessment, fact_intervention, observations)
+```
+
+### Testing BigQuery Tables
+
+After deployment, verify tables were created:
+
+```bash
+# List datasets
+bq ls --project_id=$(terraform output -raw project_id)
+
+# List tables in core dataset
+bq ls $(terraform output -raw bigquery_dataset_id)
+
+# View table schema
+bq show $(terraform output -raw bigquery_dataset_id).fact_assessment
+
+# Run a test query
+bq query --use_legacy_sql=false \
+  "SELECT COUNT(*) as row_count FROM \`$(terraform output -raw project_id).$(terraform output -raw bigquery_dataset_id).fact_assessment\`"
+```
+
+### Example Queries
+
+**Regional assessment summary:**
+```sql
+SELECT 
+  r.region_name,
+  COUNT(DISTINCT a.student_id) as student_count,
+  AVG(a.test_score) as avg_score
+FROM `jedouedu.jedouscale_core.fact_assessment` a
+JOIN `jedouedu.jedouscale_core.dim_region` r ON a.region_id = r.region_id
+WHERE a.date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+GROUP BY r.region_name
+ORDER BY avg_score DESC;
+```
+
+**Intervention effectiveness:**
+```sql
+SELECT 
+  i.intervention_type,
+  COUNT(*) as intervention_count,
+  SUM(i.participants_count) as total_participants
+FROM `jedouedu.jedouscale_core.fact_intervention` i
+WHERE i.date >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
+GROUP BY i.intervention_type
+ORDER BY total_participants DESC;
+```
+
+**Data quality monitoring:**
+```sql
+SELECT 
+  status,
+  COUNT(*) as run_count,
+  COUNT(DISTINCT file_id) as unique_files
+FROM `jedouedu.jedouscale_core.ingest_runs`
+WHERE created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)
+GROUP BY status;
+```
+
 ## Future Enhancements
 
 Future additions will include:
 
-- **BigQuery datasets** for analytics
 - **Transformer Services** for text extraction from various formats
 - **Tabular Service** for schema inference and data loading
 - **Cloud SQL** or **Firestore** for metadata storage

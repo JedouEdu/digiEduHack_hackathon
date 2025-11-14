@@ -31,7 +31,7 @@ resource "google_monitoring_alert_policy" "eventarc_high_failure_rate" {
       EOT
 
       comparison      = "COMPARISON_GT"
-      threshold_value = 0.1 # 10%
+      threshold_value = 0.1    # 10%
       duration        = "300s" # 5 minutes
 
       aggregations {
@@ -97,7 +97,7 @@ resource "google_monitoring_alert_policy" "eventarc_high_latency" {
       EOT
 
       comparison      = "COMPARISON_GT"
-      threshold_value = 30000 # 30 seconds in milliseconds
+      threshold_value = 30000  # 30 seconds in milliseconds
       duration        = "300s" # 5 minutes
 
       aggregations {
