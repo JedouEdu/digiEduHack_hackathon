@@ -1,6 +1,6 @@
 """Concepts catalog and embeddings module for tabular ingestion.
 
-This module loads the concepts catalog from YAML, manages the sentence-transformer
+This module loads the concepts catalog from YAML, manages the sentence-transformers
 embedding model, and provides functions for generating embeddings.
 """
 
@@ -11,6 +11,7 @@ from typing import Any
 
 import numpy as np
 import yaml
+from sentence_transformers import SentenceTransformer
 
 from eduscale.core.config import settings
 
@@ -49,9 +50,9 @@ class ConceptsCatalog:
 
 
 def init_embeddings() -> None:
-    """Load and cache the sentence-transformer model.
+    """Load and cache the sentence-transformers model.
 
-    This function loads the BGE-M3 model specified by EMBEDDING_MODEL_NAME
+    This function loads the paraphrase-multilingual-mpnet-base-v2 model
     and caches it at module level for reuse across requests.
     """
     global _embedding_model
@@ -61,8 +62,6 @@ def init_embeddings() -> None:
         return
 
     try:
-        from sentence_transformers import SentenceTransformer
-
         logger.info(f"Loading embedding model: {settings.EMBEDDING_MODEL_NAME}")
         _embedding_model = SentenceTransformer(settings.EMBEDDING_MODEL_NAME)
         logger.info(
@@ -80,7 +79,7 @@ def embed_texts(texts: list[str]) -> np.ndarray:
         texts: List of text strings to embed
 
     Returns:
-        numpy array of shape (len(texts), 1024) with embeddings
+        numpy array of shape (len(texts), 768) with embeddings
 
     Raises:
         RuntimeError: If embedding model is not initialized
@@ -92,7 +91,7 @@ def embed_texts(texts: list[str]) -> np.ndarray:
         return np.array([])
 
     try:
-        # BGE-M3 returns 1024-dimensional embeddings
+        # Generate embeddings with normalization
         embeddings = _embedding_model.encode(
             texts, normalize_embeddings=True, show_progress_bar=False
         )

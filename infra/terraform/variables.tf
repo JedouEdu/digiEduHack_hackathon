@@ -86,18 +86,6 @@ variable "uploads_bucket_lifecycle_days" {
   default     = 90
 }
 
-variable "tabular_model_cache_bucket_name" {
-  description = "Optional name for the shared model cache bucket (defaults to <project>-tabular-model-cache)"
-  type        = string
-  default     = ""
-}
-
-variable "tabular_model_cache_tmp_retention_days" {
-  description = "Number of days to keep temporary (.tmp) model cache artifacts before cleanup"
-  type        = number
-  default     = 7
-}
-
 # Eventarc Configuration
 variable "mime_decoder_service_name" {
   description = "The name of the MIME Decoder Cloud Run service"
@@ -178,16 +166,4 @@ variable "enable_text_trigger" {
   description = "Enable Eventarc trigger for text files (requires Tabular service to be deployed)"
   type        = bool
   default     = true
-}
-
-variable "tabular_llm_model_name" {
-  description = "LLM model name for Tabular service (Ollama)"
-  type        = string
-  default     = "llama3.2:1b"
-}
-
-variable "tabular_embedding_model_name" {
-  description = "Embedding model name for Tabular service (SentenceTransformers)"
-  type        = string
-  default     = "BAAI/bge-m3"
 }

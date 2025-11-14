@@ -1,78 +1,36 @@
-# Dockerfile for Tabular Service with Ollama and AI models
-# Optimized for faster builds with multi-stage build and better caching
+# Dockerfile for Tabular Service with Featherless.ai (LLM) + sentence-transformers (embeddings)
+# Hybrid approach: serverless LLM + local lightweight embeddings
 
-# Stage 1: Build dependencies
-FROM python:3.11-slim as builder
-
-# Install build dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    ca-certificates \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-
-# Install Ollama (static binary, can be reused)
-RUN curl -fsSL https://ollama.com/install.sh | sh
-
-# Copy requirements and install Python dependencies with cache mount
-COPY requirements.txt .
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --no-cache-dir --user -r requirements.txt
-
-# Stage 2: Runtime image
 FROM python:3.11-slim
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app/src \
-    PATH=/root/.local/bin:$PATH \
-    PORT=8080 \
-    OLLAMA_HOST=0.0.0.0:11434 \
-    SHARED_MODEL_VOLUME_ENABLED=false \
-    MODEL_CACHE_PATH=/models \
-    OLLAMA_MODELS=/models/ollama \
-    SENTENCE_TRANSFORMERS_HOME=/models/sbert \
-    HUGGINGFACE_HUB_CACHE=/models/sbert
+    PORT=8080
 
 # Install only runtime system dependencies
-# Note: jq is added for manifest.json parsing in startup script
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
-    jq \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy Ollama from builder
-COPY --from=builder /usr/local/bin/ollama /usr/local/bin/ollama
+# Copy requirements and install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy Python packages from builder
-COPY --from=builder /root/.local /root/.local
-
-# Copy application code (this layer changes most often, so it's last)
+# Copy application code
 COPY src/ /app/src/
 COPY config/ /app/config/
 
-# Copy startup script with shared volume support
-COPY docker/start-tabular.sh /start.sh
-RUN chmod +x /start.sh
-
-# Create directory for model sync scripts and copy sync job
-RUN mkdir -p /app/scripts
-COPY docker/model-sync-job.sh /app/scripts/model-sync-job.sh
-RUN chmod +x /app/scripts/model-sync-job.sh
-
-# Expose ports
+# Expose port
 EXPOSE ${PORT}
-EXPOSE 11434
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:${PORT}/health || exit 1
 
-# Run startup script
-CMD ["/start.sh"]
+# Start FastAPI service
+CMD ["uvicorn", "eduscale.main:app", "--host", "0.0.0.0", "--port", "8080"]

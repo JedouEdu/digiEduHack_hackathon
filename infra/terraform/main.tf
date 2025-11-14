@@ -87,40 +87,6 @@ resource "google_storage_bucket" "uploads" {
   depends_on = [google_project_service.storage]
 }
 
-resource "google_storage_bucket" "tabular_model_cache" {
-  name          = var.tabular_model_cache_bucket_name != "" ? var.tabular_model_cache_bucket_name : "${var.project_id}-tabular-model-cache"
-  location      = var.region
-  force_destroy = false
-
-  uniform_bucket_level_access = true
-
-  versioning {
-    enabled = true
-  }
-
-  lifecycle_rule {
-    condition {
-      num_newer_versions = 3
-    }
-    action {
-      type = "Delete"
-    }
-  }
-
-  lifecycle_rule {
-    condition {
-      age             = var.tabular_model_cache_tmp_retention_days
-      matches_prefix  = [".tmp/", "tmp/"]
-      with_state      = "ANY"
-    }
-    action {
-      type = "Delete"
-    }
-  }
-
-  depends_on = [google_project_service.storage]
-}
-
 # Data source to get project number for default compute service account
 data "google_project" "project" {
   project_id = var.project_id
