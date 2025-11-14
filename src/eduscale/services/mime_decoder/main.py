@@ -4,6 +4,7 @@ MIME Decoder Cloud Run service entry point.
 FastAPI application that receives CloudEvents from Eventarc.
 """
 
+import asyncio
 import logging
 import os
 import sys
@@ -44,6 +45,46 @@ app = FastAPI(
 )
 
 
+async def _process_event_in_background(event_data: Dict[str, Any], event_id: str) -> None:
+    """
+    Process CloudEvent in background task.
+
+    This function is executed asynchronously after returning 200 OK to Eventarc.
+    All exceptions are caught and logged to prevent task failures.
+
+    Args:
+        event_data: CloudEvent data from request
+        event_id: Unique event identifier for tracking
+    """
+    try:
+        logger.info(
+            "Starting background event processing",
+            extra={"event_id": event_id}
+        )
+
+        result = await process_cloud_event(event_data)
+
+        logger.info(
+            "Background event processing completed",
+            extra={
+                "event_id": event_id,
+                "result_status": result.get("status"),
+            }
+        )
+
+    except Exception as e:
+        # Log error but don't raise - background task should not fail
+        logger.error(
+            "Background event processing failed",
+            extra={
+                "event_id": event_id,
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+            exc_info=True,
+        )
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint for Cloud Run."""
@@ -55,57 +96,52 @@ async def handle_cloud_event(request: Request):
     """
     Handle CloudEvent from Eventarc.
 
-    Eventarc sends CloudEvents as HTTP POST requests to the root path.
-    The CloudEvent data is in the request body as JSON.
+    This endpoint immediately returns 200 OK to Eventarc and processes
+    the event asynchronously in the background. This prevents timeout issues
+    and allows Eventarc to acknowledge receipt quickly.
 
     Returns:
-        200: Event processed successfully
-        400: Invalid event data (client error, no retry)
-        500: Processing error (server error, will retry)
+        200: Event accepted for processing (always)
+        400: Invalid JSON in request body
     """
     try:
         # Parse CloudEvent from request body
         event_data = await request.json()
 
-        # Log request headers for debugging
-        logger.debug(
-            "Received CloudEvent request",
+        # Extract event ID for tracking (use different fields as fallback)
+        event_id = (
+            event_data.get("id") or
+            event_data.get("data", {}).get("generation") or
+            "unknown"
+        )
+
+        # Log request receipt
+        logger.info(
+            "CloudEvent received, scheduling background processing",
             extra={
-                "headers": dict(request.headers),
-                "client_host": request.client.host if request.client else "unknown",
+                "event_id": event_id,
+                "event_type": event_data.get("type", "unknown"),
             },
         )
 
-        # Process the event
-        result = await process_cloud_event(event_data)
+        # Schedule background processing (fire-and-forget)
+        asyncio.create_task(_process_event_in_background(event_data, event_id))
 
-        # Return success response
+        # Return 200 OK immediately
         return JSONResponse(
             status_code=status.HTTP_200_OK,
-            content=result,
-        )
-
-    except ValueError as e:
-        # Client error - invalid event data (4xx)
-        # Eventarc will NOT retry 4xx errors
-        logger.warning(
-            "Invalid CloudEvent data",
-            extra={
-                "error": str(e),
-                "error_type": "validation_error",
+            content={
+                "status": "accepted",
+                "event_id": event_id,
+                "message": "Event accepted for background processing"
             },
-            exc_info=True,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid CloudEvent data: {str(e)}",
         )
 
     except Exception as e:
-        # Server error - unexpected processing error (5xx)
-        # Eventarc WILL retry 5xx errors with exponential backoff
-        logger.error(
-            "Failed to process CloudEvent",
+        # Only fail if we can't parse the request body
+        # This prevents Eventarc retries for malformed requests
+        logger.warning(
+            "Failed to parse CloudEvent request",
             extra={
                 "error": str(e),
                 "error_type": type(e).__name__,
@@ -113,8 +149,8 @@ async def handle_cloud_event(request: Request):
             exc_info=True,
         )
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to process event: {str(e)}",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid request: {str(e)}",
         )
 
 
