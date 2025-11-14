@@ -97,12 +97,16 @@ jobs:
         run: |
           echo "Running smoke tests..."
           
-          # Test health endpoint
+          # Test general health endpoint
           curl -f ${{ steps.get-url.outputs.SERVICE_URL }}/health || exit 1
-          echo "✓ Health check passed"
+          echo "✓ General health check passed"
           
-          # Verify response contains expected fields
-          HEALTH_RESPONSE=$(curl -s ${{ steps.get-url.outputs.SERVICE_URL }}/health)
+          # Test tabular-specific health endpoint
+          curl -f ${{ steps.get-url.outputs.SERVICE_URL }}/health/tabular || exit 1
+          echo "✓ Tabular health check passed"
+          
+          # Verify tabular health response contains expected fields
+          HEALTH_RESPONSE=$(curl -s ${{ steps.get-url.outputs.SERVICE_URL }}/health/tabular)
           echo "$HEALTH_RESPONSE" | grep -q '"status":"ok"' || exit 1
           echo "$HEALTH_RESPONSE" | grep -q '"service":"tabular-service"' || exit 1
           echo "✓ Health response validation passed"

@@ -41,6 +41,13 @@ class DwhClient:
         self.project_id = settings.bigquery_project
         self.dataset_id = settings.BIGQUERY_DATASET_ID
         self.staging_dataset_id = settings.bigquery_staging_dataset
+        
+        # Debug: Log what we got from settings
+        logger.info(
+            f"BigQuery config: GCP_PROJECT_ID={settings.GCP_PROJECT_ID}, "
+            f"bigquery_project={settings.bigquery_project}"
+        )
+        
         self.client = bigquery.Client(project=self.project_id)
 
         logger.info(

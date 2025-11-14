@@ -273,7 +273,7 @@ async def analyze_tabular_direct(request: TabularRequest) -> TabularResponse:
         raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
 
 
-@router.get("/health")
+@router.get("/health/tabular")
 async def health_check() -> dict[str, Any]:
     """Health check endpoint for Tabular service.
 
