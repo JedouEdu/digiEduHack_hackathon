@@ -666,12 +666,12 @@ def transcribe_audio_short(
 
 
 async def transcribe_audio_chunk_async(
-    gcs_uri: str, language_code: str = "en-US"
+    chunk_path: Path, language_code: str = "en-US"
 ) -> tuple[str, float]:
     """Transcribe audio chunk asynchronously using Google Speech API synchronous recognition.
 
     Args:
-        gcs_uri: GCS URI of the audio chunk (LINEAR16 WAV format, <= 50 seconds)
+        chunk_path: Path to the local audio chunk file (LINEAR16 WAV format, <= 50 seconds)
         language_code: Language code (e.g., 'en-US', 'cs-CZ')
 
     Returns:
@@ -682,8 +682,8 @@ async def transcribe_audio_chunk_async(
     """
     try:
         logger.debug(
-            "Transcribing chunk asynchronously",
-            extra={"gcs_uri": gcs_uri, "language": language_code},
+            "Transcribing chunk asynchronously from local file",
+            extra={"chunk_path": str(chunk_path), "language": language_code},
         )
 
         # Run synchronous API call in executor to avoid blocking
@@ -691,7 +691,12 @@ async def transcribe_audio_chunk_async(
 
         def _transcribe():
             client = speech.SpeechClient()
-            audio = speech.RecognitionAudio(uri=gcs_uri)
+
+            # Read audio content from local file
+            with open(chunk_path, "rb") as audio_file:
+                content = audio_file.read()
+
+            audio = speech.RecognitionAudio(content=content)
             config = speech.RecognitionConfig(
                 encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
                 sample_rate_hertz=16000,
@@ -721,7 +726,7 @@ async def transcribe_audio_chunk_async(
         logger.debug(
             "Chunk transcription successful",
             extra={
-                "gcs_uri": gcs_uri,
+                "chunk_path": str(chunk_path),
                 "transcript_length": len(transcript),
                 "confidence": confidence,
             },
@@ -732,18 +737,18 @@ async def transcribe_audio_chunk_async(
     except Exception as e:
         logger.error(
             "Failed to transcribe chunk",
-            extra={"gcs_uri": gcs_uri, "error": str(e)},
+            extra={"chunk_path": str(chunk_path), "error": str(e)},
         )
         raise TranscriptionError(f"Chunk transcription failed: {e}") from e
 
 
 async def process_chunks_parallel(
-    chunk_uris: list[tuple[str, float]], language_code: str = "en-US"
+    chunks: list[tuple[Path, float]], language_code: str = "en-US"
 ) -> list[tuple[str, float, float]]:
     """Process multiple audio chunks in parallel using asyncio.
 
     Args:
-        chunk_uris: List of (gcs_uri, start_offset) tuples
+        chunks: List of (chunk_path, start_offset) tuples
         language_code: Language code for transcription
 
     Returns:
@@ -755,13 +760,13 @@ async def process_chunks_parallel(
     try:
         logger.info(
             "Processing chunks in parallel",
-            extra={"total_chunks": len(chunk_uris), "language": language_code},
+            extra={"total_chunks": len(chunks), "language": language_code},
         )
 
         # Create tasks for all chunks with their offsets
         tasks_with_offsets = [
-            (transcribe_audio_chunk_async(gcs_uri, language_code), start_offset, idx)
-            for idx, (gcs_uri, start_offset) in enumerate(chunk_uris, start=1)
+            (transcribe_audio_chunk_async(chunk_path, language_code), start_offset, idx)
+            for idx, (chunk_path, start_offset) in enumerate(chunks, start=1)
         ]
 
         # Execute all tasks in parallel using asyncio.gather
@@ -921,15 +926,15 @@ async def transcribe_audio(
 ) -> tuple[str, AudioMetadata]:
     """Transcribe audio file, automatically choosing short or chunked recognition.
 
-    For audio files longer than 60 seconds, splits into chunks, uploads to GCS,
-    processes in parallel, and merges results.
+    For audio files longer than 50 seconds, splits into chunks,
+    processes in parallel from local files, and merges results.
 
     Args:
         file_path: Path to the audio file
         language_code: Language code (e.g., 'en-US', 'cs-CZ')
-        storage_client: StorageClient instance (required for long audio)
-        bucket: GCS bucket name (required for long audio)
-        file_id: File identifier (required for long audio)
+        storage_client: Deprecated, no longer used
+        bucket: Deprecated, no longer used
+        file_id: Deprecated, no longer used
 
     Returns:
         Tuple of (transcript, metadata)
@@ -966,12 +971,6 @@ async def transcribe_audio(
                     extra={"duration": metadata.duration_seconds},
                 )
 
-                # Validate required parameters
-                if not storage_client or not bucket or not file_id:
-                    raise TranscriptionError(
-                        "storage_client, bucket, and file_id are required for long audio files"
-                    )
-
                 # 1. Split audio into chunks
                 chunks = split_audio_into_chunks(converted_path, chunk_duration=50, overlap=1.0)
                 chunks_temp_dir = chunks[0][0].parent if chunks else None
@@ -981,23 +980,15 @@ async def transcribe_audio(
                     extra={"total_chunks": len(chunks)},
                 )
 
-                # 2. Upload chunks to GCS
-                chunk_uris = upload_chunks_to_gcs(storage_client, bucket, file_id, chunks)
-
-                logger.info(
-                    "Chunks uploaded to GCS",
-                    extra={"total_chunks": len(chunk_uris)},
-                )
-
-                # 3. Process chunks in parallel using asyncio
-                results = await process_chunks_parallel(chunk_uris, language_code)
+                # 2. Process chunks in parallel using asyncio from local files
+                results = await process_chunks_parallel(chunks, language_code)
 
                 logger.info(
                     "All chunks transcribed",
                     extra={"total_results": len(results)},
                 )
 
-                # 4. Merge transcription results
+                # 3. Merge transcription results
                 transcript, confidence = merge_transcription_results(results, overlap=1.0)
 
                 logger.info(
@@ -1007,9 +998,6 @@ async def transcribe_audio(
                         "confidence": confidence,
                     },
                 )
-
-                # 5. Cleanup GCS chunks
-                cleanup_gcs_chunks(storage_client, bucket, file_id)
 
             else:
                 # Short audio: use synchronous recognition with converted file

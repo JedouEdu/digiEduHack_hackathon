@@ -129,10 +129,17 @@ resource "google_project_iam_member" "cloud_run_engine_token_creator" {
   member  = "serviceAccount:${google_service_account.cloud_run_engine.email}"
 }
 
-# Grant Speech API User role (needed for audio transcription)
+# Grant ML Developer role (for AI Platform/Vertex AI)
 resource "google_project_iam_member" "cloud_run_engine_speech_user" {
   project = var.project_id
   role    = "roles/ml.developer"
+  member  = "serviceAccount:${google_service_account.cloud_run_engine.email}"
+}
+
+# Grant Speech-to-Text API Client role (needed for audio transcription)
+resource "google_project_iam_member" "cloud_run_engine_speech_client" {
+  project = var.project_id
+  role    = "roles/speech.client"
   member  = "serviceAccount:${google_service_account.cloud_run_engine.email}"
 }
 
