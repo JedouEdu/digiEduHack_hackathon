@@ -60,11 +60,11 @@ resource "google_cloud_run_v2_job" "model_sync" {
           value = "/models/sbert"
         }
 
-        # Resource allocation (same as service for consistency)
+        # Resource allocation (8GB needed for BGE-M3 model download)
         resources {
           limits = {
             cpu    = "2000m"
-            memory = "4Gi"
+            memory = "8Gi"
           }
         }
 

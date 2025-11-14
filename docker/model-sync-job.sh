@@ -90,24 +90,21 @@ log_info "Ollama model checksum: ${OLLAMA_CHECKSUM}"
 log_info "Downloading sentence-transformers model: ${EMBEDDING_MODEL}..."
 log_json "INFO" "Downloading embedding model" "\"model\":\"${EMBEDDING_MODEL}\",\"version\":\"${VERSION}\""
 
-# Set temp cache for sentence-transformers
-export SENTENCE_TRANSFORMERS_HOME="${TMP_DIR}/sbert"
-export HUGGINGFACE_HUB_CACHE="${TMP_DIR}/sbert"
+# Download directly into the mounted shared cache (GCSFuse)
+export SENTENCE_TRANSFORMERS_HOME="${MODEL_CACHE_PATH}/.tmp/sbert-${VERSION}"
+export HUGGINGFACE_HUB_CACHE="${SENTENCE_TRANSFORMERS_HOME}"
+# Download the model using snapshot_download to avoid loading into RAM
 mkdir -p "${SENTENCE_TRANSFORMERS_HOME}"
 
-# Download the model using Python (download only, don't load into memory to avoid OOM)
 if python3 -c "
 from huggingface_hub import snapshot_download
 import sys
 import os
 try:
-    cache_dir = '${TMP_DIR}/sbert'
-    model_name = '${EMBEDDING_MODEL}'.replace('/', '--')
+    target_dir = '${SENTENCE_TRANSFORMERS_HOME}'
     snapshot_download(
         repo_id='${EMBEDDING_MODEL}',
-        cache_dir=cache_dir,
-        local_dir=os.path.join(cache_dir, f'models--{model_name}'),
-        local_dir_use_symlinks=False
+        local_dir=target_dir
     )
     print('Model downloaded successfully')
     sys.exit(0)
@@ -125,11 +122,11 @@ else
 fi
 
 # Generate checksums for embedding model
-EMBEDDING_CHECKSUM=$(find "${TMP_DIR}/sbert" -type f -name "*.bin" -o -name "*.safetensors" | head -n1 | xargs sha256sum 2>/dev/null | awk '{print $1}' || echo "unknown")
+EMBEDDING_CHECKSUM=$(find "${SENTENCE_TRANSFORMERS_HOME}" -type f \( -name "*.bin" -o -name "*.safetensors" \) | head -n1 | xargs sha256sum 2>/dev/null | awk '{print $1}' || echo "unknown")
 log_info "Embedding model checksum: ${EMBEDDING_CHECKSUM}"
 
 # Create manifest
-MANIFEST_PATH="${TMP_DIR}/manifest.json"
+MANIFEST_PATH="${MODEL_CACHE_PATH}/.tmp/manifest-${VERSION}.json"
 log_info "Creating manifest at ${MANIFEST_PATH}..."
 
 cat > "${MANIFEST_PATH}" <<EOF
@@ -169,11 +166,11 @@ if [ -d "${HOME}/.ollama/models" ]; then
     cp -r "${HOME}/.ollama/models/"* "${MODEL_CACHE_PATH}/ollama/" 2>/dev/null || true
 fi
 
-# Move sentence-transformers cache
-if [ -d "${TMP_DIR}/sbert" ]; then
+# Move sentence-transformers cache within shared volume
+if [ -d "${SENTENCE_TRANSFORMERS_HOME}" ]; then
     log_info "Moving sentence-transformers cache to ${MODEL_CACHE_PATH}/sbert"
     rm -rf "${MODEL_CACHE_PATH}/sbert"
-    mv "${TMP_DIR}/sbert" "${MODEL_CACHE_PATH}/sbert"
+    mv "${SENTENCE_TRANSFORMERS_HOME}" "${MODEL_CACHE_PATH}/sbert"
 fi
 
 # Move manifest
