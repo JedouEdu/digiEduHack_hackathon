@@ -2,6 +2,7 @@
 
 import logging
 import tempfile
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -132,7 +133,9 @@ async def handle_cloud_event(request: Request) -> dict[str, str]:
         with tempfile.NamedTemporaryFile(mode="w+", suffix=".txt", delete=True) as tmp_file:
             # Download file
             storage_client.download_file(
-                bucket_name=bucket, object_name=object_name, local_path=tmp_file.name
+                bucket_name=bucket,
+                object_name=object_name,
+                destination=Path(tmp_file.name),
             )
 
             # Read content
@@ -226,7 +229,9 @@ async def analyze_tabular_direct(request: TabularRequest) -> TabularResponse:
         with tempfile.NamedTemporaryFile(mode="w+", suffix=".txt", delete=True) as tmp_file:
             # Download file
             storage_client.download_file(
-                bucket_name=bucket, object_name=object_name, local_path=tmp_file.name
+                bucket_name=bucket,
+                object_name=object_name,
+                destination=Path(tmp_file.name),
             )
 
             # Read content

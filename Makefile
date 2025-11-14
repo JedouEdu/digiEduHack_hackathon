@@ -156,6 +156,23 @@ docker-rebuild: ## Rebuild and start Docker Compose environment
 docker-logs: ## Show Docker Compose logs
 	docker compose -f docker/docker-compose.dev.yml logs -f
 
+docker-build-tabular: ## Build tabular service image with BuildKit (optimized)
+	@echo "$(BLUE)Building tabular service with BuildKit...$(NC)"
+	DOCKER_BUILDKIT=1 docker build \
+		-f docker/Dockerfile.tabular \
+		-t tabular-service:latest \
+		.
+	@echo "$(GREEN)Tabular service built successfully$(NC)"
+
+docker-build-tabular-cache: ## Build tabular service with BuildKit and cache (fastest)
+	@echo "$(BLUE)Building tabular service with BuildKit and cache...$(NC)"
+	DOCKER_BUILDKIT=1 docker build \
+		--cache-from tabular-service:latest \
+		-f docker/Dockerfile.tabular \
+		-t tabular-service:latest \
+		.
+	@echo "$(GREEN)Tabular service built successfully$(NC)"
+
 clean: ## Clean up temporary files and caches
 	@echo "$(BLUE)Cleaning up...$(NC)"
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true

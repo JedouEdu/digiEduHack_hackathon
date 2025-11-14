@@ -37,11 +37,33 @@ resource "google_service_account" "tabular_service" {
   project      = var.project_id
 }
 
+# Shared Model Cache - grant Tabular service write access
+resource "google_storage_bucket_iam_member" "tabular_service_model_cache_admin" {
+  bucket = google_storage_bucket.tabular_model_cache.name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.tabular_service.email}"
+}
+
 # Grant Tabular Service access to read text files from Cloud Storage
 resource "google_storage_bucket_iam_member" "tabular_storage_viewer" {
   bucket = google_storage_bucket.uploads.name
   role   = "roles/storage.objectViewer"
   member = "serviceAccount:${google_service_account.tabular_service.email}"
+}
+
+# Service Account for model sync Cloud Run Job
+resource "google_service_account" "tabular_model_sync" {
+  account_id   = "tabular-model-sync"
+  display_name = "Tabular Model Sync Job"
+  description  = "Service account for Cloud Run job that refreshes the shared model cache"
+  project      = var.project_id
+}
+
+# Shared Model Cache - grant sync job full admin access (required for gsutil mv and lifecycle ops)
+resource "google_storage_bucket_iam_member" "tabular_model_sync_storage_admin" {
+  bucket = google_storage_bucket.tabular_model_cache.name
+  role   = "roles/storage.admin"
+  member = "serviceAccount:${google_service_account.tabular_model_sync.email}"
 }
 
 # Grant Tabular Service permission to write to BigQuery tables
@@ -57,3 +79,21 @@ resource "google_project_iam_member" "tabular_bigquery_job_user" {
   role    = "roles/bigquery.jobUser"
   member  = "serviceAccount:${google_service_account.tabular_service.email}"
 }
+
+# Service Account for Model Sync Job
+# This service account is used by the Cloud Run Job to populate the shared model cache
+resource "google_service_account" "model_sync_job" {
+  account_id   = "model-sync-job"
+  display_name = "Model Sync Job Service Account"
+  description  = "Service account for Model Sync Cloud Run Job"
+  project      = var.project_id
+}
+
+# Grant Model Sync Job admin access to model cache bucket
+resource "google_storage_bucket_iam_member" "model_sync_storage_admin" {
+  bucket = google_storage_bucket.tabular_model_cache.name
+  role   = "roles/storage.admin"
+  member = "serviceAccount:${google_service_account.model_sync_job.email}"
+}
+
+# Note: model_sync_scheduler service account removed - job is triggered manually
