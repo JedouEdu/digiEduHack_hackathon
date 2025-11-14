@@ -17,7 +17,7 @@ client = TestClient(app)
 
 def test_health_check():
     """Test health check endpoint."""
-    response = client.get("/health")
+    response = client.get("/health/tabular")
 
     assert response.status_code == 200
     data = response.json()

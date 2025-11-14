@@ -49,7 +49,6 @@ class Settings(BaseSettings):
     SPEECH_LANGUAGE_CS: str = "cs-CZ"
 
     # Tabular Service Configuration
-    BIGQUERY_PROJECT_ID: str = ""  # If not set, defaults to GCP_PROJECT_ID
     BIGQUERY_DATASET_ID: str = "jedouscale_core"
     BIGQUERY_STAGING_DATASET_ID: str = ""  # Defaults to BIGQUERY_DATASET_ID
     CLEAN_LAYER_BASE_PATH: str = "./data/clean"
