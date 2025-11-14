@@ -32,6 +32,11 @@ python-Levenshtein>=0.21.0  # For fuzzy string matching
 rapidfuzz>=3.0.0  # Faster alternative to python-Levenshtein
 google-cloud-bigquery>=3.11.0
 openai>=1.0.0  # For Featherless.ai API (LLM)
+
+# CPU-only PyTorch (MUST be installed BEFORE sentence-transformers to avoid NVIDIA deps)
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.0.0+cpu
 sentence-transformers>=2.3.0  # For local embeddings (paraphrase-multilingual-mpnet-base-v2)
+
 numpy>=1.24.0
 scikit-learn>=1.3.0  # For cosine_similarity
