@@ -389,10 +389,12 @@ def split_audio_into_chunks(
                 # Use ffmpeg to extract chunk
                 cmd = [
                     "ffmpeg",
+                    "-ss", str(start_time),  # Start time (before -i for fast seeking)
                     "-i", str(file_path),
-                    "-ss", str(start_time),  # Start time
                     "-t", str(actual_duration),  # Duration
-                    "-c", "copy",  # Copy codec (no re-encoding needed for LINEAR16 WAV)
+                    "-acodec", "pcm_s16le",  # Re-encode to ensure accurate splitting
+                    "-ar", "16000",  # Keep sample rate
+                    "-ac", "1",  # Keep mono
                     "-y",  # Overwrite output file
                     str(chunk_path),
                 ]
