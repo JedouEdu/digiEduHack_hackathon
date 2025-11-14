@@ -161,3 +161,9 @@ variable "tabular_service_name" {
   type        = string
   default     = "tabular-service"
 }
+
+variable "enable_text_trigger" {
+  description = "Enable Eventarc trigger for text files (requires Tabular service to be deployed)"
+  type        = bool
+  default     = false
+}

@@ -110,9 +110,9 @@ resource "google_eventarc_trigger" "storage_trigger" {
 }
 
 # Data source to reference the existing Tabular service
-# Only created when enable_eventarc is true
+# Only created when enable_text_trigger is true
 data "google_cloud_run_service" "tabular" {
-  count    = var.enable_eventarc ? 1 : 0
+  count    = var.enable_text_trigger ? 1 : 0
   name     = var.tabular_service_name
   location = var.region
   project  = var.project_id
@@ -120,7 +120,7 @@ data "google_cloud_run_service" "tabular" {
 
 # Grant Eventarc service account permission to invoke Tabular Service
 resource "google_cloud_run_service_iam_member" "eventarc_tabular_invoker" {
-  count    = var.enable_eventarc ? 1 : 0
+  count    = var.enable_text_trigger ? 1 : 0
   service  = data.google_cloud_run_service.tabular[0].name
   location = data.google_cloud_run_service.tabular[0].location
   role     = "roles/run.invoker"
@@ -130,8 +130,9 @@ resource "google_cloud_run_service_iam_member" "eventarc_tabular_invoker" {
 
 # Eventarc Trigger for text files
 # Automatically triggers Tabular Service when Transformer produces text output
+# NOTE: Set enable_text_trigger=true only after Tabular service is deployed
 resource "google_eventarc_trigger" "text_trigger" {
-  count    = var.enable_eventarc ? 1 : 0
+  count    = var.enable_text_trigger ? 1 : 0
   name     = "text-files-trigger"
   location = var.region
   project  = var.project_id
