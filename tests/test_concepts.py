@@ -20,7 +20,7 @@ from eduscale.tabular.concepts import (
 def mock_sentence_transformer():
     """Mock SentenceTransformer to avoid downloading model."""
     mock_model = type('MockModel', (), {
-        'encode': lambda self, texts, **kwargs: np.random.rand(len(texts), 1024)
+        'encode': lambda self, texts, **kwargs: np.random.rand(len(texts), 768)
     })()
     
     with patch('sentence_transformers.SentenceTransformer', return_value=mock_model):
@@ -42,8 +42,8 @@ def test_embed_texts(mock_sentence_transformer):
 
     embeddings = embed_texts(texts)
 
-    # Check shape: 3 texts, 1024 dimensions (BGE-M3)
-    assert embeddings.shape == (3, 1024)
+    # Check shape: 3 texts, 768 dimensions (paraphrase-multilingual-mpnet-base-v2)
+    assert embeddings.shape == (3, 768)
 
 
 def test_embed_texts_empty(mock_sentence_transformer):
@@ -64,14 +64,14 @@ def test_load_concepts_catalog(mock_sentence_transformer):
     assert catalog.table_types[0].name == "ASSESSMENT"
     assert len(catalog.table_types[0].anchors) == 2
     assert catalog.table_types[0].embedding is not None
-    assert catalog.table_types[0].embedding.shape == (1024,)
+    assert catalog.table_types[0].embedding.shape == (768,)
 
     # Check concepts
     assert catalog.concepts[0].key == "student_id"
     assert catalog.concepts[0].expected_type == "string"
     assert len(catalog.concepts[0].synonyms) == 3
     assert catalog.concepts[0].embedding is not None
-    assert catalog.concepts[0].embedding.shape == (1024,)
+    assert catalog.concepts[0].embedding.shape == (768,)
 
 
 def test_load_concepts_catalog_file_not_found():
@@ -110,7 +110,7 @@ def test_embedding_similarity(mock_sentence_transformer):
     embeddings = embed_texts([text1, text2, text3])
 
     # Check that embeddings were generated
-    assert embeddings.shape == (3, 1024)
+    assert embeddings.shape == (3, 768)
 
 
 def test_model_caching(mock_sentence_transformer):
@@ -125,5 +125,5 @@ def test_model_caching(mock_sentence_transformer):
     embeddings2 = embed_texts(["test text"])
 
     # Check that embeddings were generated
-    assert embeddings1.shape == (1, 1024)
-    assert embeddings2.shape == (1, 1024)
+    assert embeddings1.shape == (1, 768)
+    assert embeddings2.shape == (1, 768)

@@ -291,7 +291,7 @@ async def health_check() -> dict[str, Any]:
         "version": settings.SERVICE_VERSION,
         "models": {
             "embedding_model": settings.EMBEDDING_MODEL_NAME,
-            "llm_model": settings.LLM_MODEL_NAME,
+            "llm_model": settings.FEATHERLESS_LLM_MODEL,
             "llm_enabled": settings.LLM_ENABLED,
         },
     }
