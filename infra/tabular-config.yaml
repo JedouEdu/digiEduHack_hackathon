@@ -76,12 +76,9 @@ spec:
           value: "gcs"
         
         - name: GCS_BUCKET_NAME
-          value: "BUCKET_NAME"
+          value: "PROJECT_ID-eduscale-uploads"
         
         # BigQuery Configuration
-        - name: BIGQUERY_PROJECT_ID
-          value: "PROJECT_ID"
-        
         - name: BIGQUERY_DATASET_ID
           value: "jedouscale_core"
         

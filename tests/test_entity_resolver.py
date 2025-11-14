@@ -135,7 +135,8 @@ def test_resolve_entity_no_match():
         value_type="name",
     )
 
-    assert match.entity_id == ""
+    assert match.entity_id != ""  # Now generates a new ID
+    assert len(match.entity_id) == 16  # 16-char hex hash
     assert match.match_method == "NEW"
     assert match.confidence == "LOW"
     assert match.similarity_score == 0.0

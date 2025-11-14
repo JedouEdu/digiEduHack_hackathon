@@ -79,8 +79,8 @@ class Settings(BaseSettings):
 
     @property
     def bigquery_project(self) -> str:
-        """Get BigQuery project ID, defaulting to GCP_PROJECT_ID."""
-        return self.BIGQUERY_PROJECT_ID or self.GCP_PROJECT_ID
+        """Get BigQuery project ID from GCP_PROJECT_ID."""
+        return self.GCP_PROJECT_ID
 
     @property
     def bigquery_staging_dataset(self) -> str:

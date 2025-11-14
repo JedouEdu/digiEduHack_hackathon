@@ -47,9 +47,9 @@ The interface operates within the existing FastAPI application on Google Cloud R
 #### Acceptance Criteria
 
 1. THE SQL Generation Module SHALL implement function generate_sql_from_nl(user_query: str, history: list[dict] | None) -> dict
-2. THE SQL Generation Module SHALL call Ollama via HTTP POST to /v1/chat or /api/generate endpoint
-3. THE SQL Generation Module SHALL use LLM model specified in settings.LLM_MODEL (default: "llama3.2:1b")
-4. THE SQL Generation Module SHALL use Ollama endpoint from settings.LLM_ENDPOINT (default: "http://localhost:11434")
+2. THE SQL Generation Module SHALL call Featherless.ai API using OpenAI Python client
+3. THE SQL Generation Module SHALL use LLM model specified in settings.FEATHERLESS_LLM_MODEL (default: "meta-llama/Meta-Llama-3.1-8B-Instruct")
+4. THE SQL Generation Module SHALL use API endpoint from settings.FEATHERLESS_BASE_URL (default: "https://api.featherless.ai/v1")
 5. THE SQL Generation Module SHALL compose messages with: system prompt (schema + rules) and user message (user_query)
 6. THE SQL Generation Module SHALL parse LLM response as JSON to extract "sql" and "explanation" fields
 7. WHEN JSON parsing fails, THE SQL Generation Module SHALL raise SqlGenerationError with details
@@ -136,16 +136,17 @@ The interface operates within the existing FastAPI application on Google Cloud R
 
 #### Acceptance Criteria
 
-1. THE Settings class SHALL include LLM_MODEL: str with default "llama3.2:1b"
-2. THE Settings class SHALL include LLM_ENDPOINT: str with default "http://localhost:11434"
-3. THE Settings class SHALL include BQ_MAX_BYTES_BILLED: Optional[int] with default None (no limit)
-4. THE Settings class SHALL include NLQ_ENABLED: bool with default True (feature toggle)
+1. THE Settings class SHALL reuse existing FEATHERLESS_LLM_MODEL: str with default "meta-llama/Meta-Llama-3.1-8B-Instruct"
+2. THE Settings class SHALL reuse existing FEATHERLESS_BASE_URL: str with default "https://api.featherless.ai/v1"
+3. THE Settings class SHALL reuse existing FEATHERLESS_API_KEY: str (required for authentication)
+4. THE Settings class SHALL reuse existing LLM_ENABLED: bool with default True (feature toggle)
 5. THE Settings class SHALL include NLQ_MAX_RESULTS: int with default 100
 6. THE Settings class SHALL include NLQ_QUERY_TIMEOUT_SECONDS: int with default 60
-7. THE Settings class SHALL ensure GCP_PROJECT_ID is set (required for BigQuery client)
-8. THE Settings class SHALL ensure BIGQUERY_DATASET_ID is set (required for schema context)
-9. WHEN NLQ_ENABLED is False, THE Chat API endpoint SHALL return 503 Service Unavailable with message "NLQ feature is disabled"
-10. ALL configuration values SHALL be loaded from environment variables via Pydantic Settings
+7. THE Settings class SHALL include BQ_MAX_BYTES_BILLED: Optional[int] with default None (no limit)
+8. THE Settings class SHALL reuse existing GCP_PROJECT_ID (required for BigQuery client)
+9. THE Settings class SHALL reuse existing BIGQUERY_DATASET_ID with default "jedouscale_core" (required for schema context)
+10. WHEN LLM_ENABLED is False, THE Chat API endpoint SHALL return 503 Service Unavailable with message "NLQ feature is disabled"
+11. ALL configuration values SHALL be loaded from environment variables via Pydantic Settings
 
 ### Requirement 7: Safety and Security
 
@@ -199,24 +200,24 @@ The interface operates within the existing FastAPI application on Google Cloud R
 11. THE Test Suite SHALL include fixtures for sample user queries and expected SQL outputs
 12. THE Test Suite SHALL achieve minimum 80% code coverage for NLQ modules
 
-### Requirement 10: Ollama Integration and Deployment
+### Requirement 10: Featherless.ai Integration and Deployment
 
-**User Story:** As a platform engineer, I want Ollama running reliably in the Cloud Run container, so that LLM inference works in production.
+**User Story:** As a platform engineer, I want Featherless.ai API integrated reliably, so that LLM inference works in production.
 
 #### Acceptance Criteria
 
-1. THE Dockerfile SHALL install Ollama using official installation script
-2. THE Dockerfile SHALL pull llama3.2:1b model during image build or container startup
-3. THE Container startup script SHALL start Ollama service in background (ollama serve &)
-4. THE Container startup script SHALL wait for Ollama to be ready before starting FastAPI
-5. THE Container startup script SHALL verify Ollama health with GET /api/tags
-6. THE Container SHALL allocate sufficient memory for Ollama + model (minimum 4GB, recommended 8GB)
-7. THE Cloud Run configuration SHALL set concurrency to 1-5 (lower due to LLM memory usage)
-8. THE Cloud Run configuration SHALL set CPU allocation to "always" (Ollama needs CPU during inference)
-9. THE Cloud Run configuration SHALL set request timeout to 300 seconds (LLM inference can be slow on CPU)
-10. THE System SHALL log Ollama startup time and model loading status
-11. WHEN Ollama fails to start, THE Container SHALL exit with non-zero code and log error details
-12. THE System SHALL document cold start time increase (~30-60 seconds for Ollama + model loading)
+1. THE System SHALL use existing OpenAI Python client (openai>=1.0.0) for Featherless.ai API calls
+2. THE System SHALL reuse existing LLMClient pattern from eduscale.tabular.analysis.llm_client
+3. THE System SHALL authenticate with FEATHERLESS_API_KEY from environment variables
+4. THE System SHALL call Featherless.ai API at FEATHERLESS_BASE_URL endpoint
+5. THE System SHALL use model specified in FEATHERLESS_LLM_MODEL (default: "meta-llama/Meta-Llama-3.1-8B-Instruct")
+6. THE System SHALL handle API errors gracefully (timeout, rate limits, authentication failures)
+7. THE System SHALL log all API calls with request/response metadata
+8. THE Cloud Run configuration SHALL NOT require special memory/CPU allocation (external API, no local model)
+9. THE Cloud Run configuration SHALL set request timeout to 60 seconds (sufficient for API calls)
+10. THE System SHALL document API rate limits and cost implications
+11. THE System SHALL provide fallback behavior when API is unavailable (return error message to user)
+12. THE Dockerfile SHALL NOT install any LLM runtime (external API only)
 
 ### Requirement 11: BigQuery Schema Context Accuracy
 
@@ -224,16 +225,23 @@ The interface operates within the existing FastAPI application on Google Cloud R
 
 #### Acceptance Criteria
 
-1. THE Schema Context SHALL match the actual BigQuery tables provisioned by Terraform (fact_assessment, fact_intervention, fact_attendance, dim_region, dim_school, dim_time, observations, ingest_runs)
-2. THE Schema Context SHALL document partition and clustering keys for query optimization hints
-3. THE Schema Context SHALL include example JOIN patterns (e.g., fact_assessment JOIN dim_region ON region_id)
-4. THE Schema Context SHALL document common filters (e.g., date ranges, region filters)
-5. THE Schema Context SHALL include column data types for type-safe query generation
-6. THE Schema Context SHALL provide examples of aggregations (AVG, SUM, COUNT) for analytics queries
-7. THE Schema Context SHALL document observations table structure for free-form text queries
-8. THE Schema Context SHALL be version-controlled and updated when schema changes
-9. THE Schema Context SHALL include comments explaining business meaning of key fields (e.g., test_score = normalized score 0-100)
-10. THE Schema Context SHALL prioritize tables most relevant for analytics (fact tables and key dimensions)
+1. THE Schema Context SHALL match the actual BigQuery tables provisioned by Terraform:
+   - fact_assessment (date, region_id, school_name, student_id, student_name, subject, test_score, file_id, ingest_timestamp)
+   - fact_intervention (date, region_id, school_name, intervention_type, participants_count, file_id, ingest_timestamp)
+   - observations (file_id, region_id, observation_text, source_table_type, ingest_timestamp)
+   - dim_region (region_id, region_name, from_date, to_date)
+   - dim_school (school_name, region_id, from_date, to_date)
+   - dim_time (date, year, month, day, quarter, day_of_week)
+   - ingest_runs (file_id, region_id, status, step, error_message, created_at, updated_at)
+2. THE Schema Context SHALL document partition keys: fact_assessment/fact_intervention partitioned by date, observations/ingest_runs partitioned by timestamp
+3. THE Schema Context SHALL document clustering keys: all fact tables clustered by region_id
+4. THE Schema Context SHALL include example JOIN patterns (e.g., fact_assessment JOIN dim_region ON region_id)
+5. THE Schema Context SHALL document common filters (e.g., date ranges, region filters)
+6. THE Schema Context SHALL include column data types matching terraform schema (STRING, FLOAT, INTEGER, DATE, TIMESTAMP)
+7. THE Schema Context SHALL provide examples of aggregations (AVG, SUM, COUNT) for analytics queries
+8. THE Schema Context SHALL document observations.observation_text for free-form text search
+9. THE Schema Context SHALL be version-controlled and updated when schema changes
+10. THE Schema Context SHALL prioritize fact_assessment and fact_intervention for analytics (most commonly queried)
 
 ### Requirement 12: Demo-Ready Example Queries
 
@@ -260,14 +268,14 @@ The interface operates within the existing FastAPI application on Google Cloud R
 #### Acceptance Criteria
 
 1. THE System SHALL complete typical queries (< 1000 rows scanned) in < 10 seconds end-to-end
-2. THE System SHALL handle concurrent requests with Cloud Run autoscaling (concurrency=1-5 per instance)
-3. THE LLM inference SHALL complete in < 5 seconds for typical queries on Cloud Run CPU
+2. THE System SHALL handle concurrent requests with Cloud Run autoscaling (standard concurrency=80 per instance)
+3. THE LLM API call SHALL complete in < 3 seconds for typical queries (Featherless.ai serverless)
 4. THE BigQuery query execution SHALL complete in < 5 seconds for optimized queries
-5. THE System SHALL cache Ollama model in memory (no re-download per request)
+5. THE System SHALL reuse OpenAI client connections (managed by openai library)
 6. THE System SHALL reuse BigQuery client connections (connection pooling)
-7. THE System SHALL log performance metrics: llm_inference_ms, query_execution_ms, total_request_ms
-8. WHEN performance degrades, THE System SHALL provide actionable metrics for optimization (e.g., bytes_scanned, query_plan)
-9. THE System SHALL document expected cold start time (~30-60s) and warm request time (~5-15s)
+7. THE System SHALL log performance metrics: llm_api_ms, query_execution_ms, total_request_ms
+8. WHEN performance degrades, THE System SHALL provide actionable metrics for optimization (e.g., bytes_scanned, query_plan, API latency)
+9. THE System SHALL document expected cold start time (~5-10s, no local model loading) and warm request time (~3-8s)
 
 ### Requirement 14: Privacy and Compliance
 
@@ -275,16 +283,18 @@ The interface operates within the existing FastAPI application on Google Cloud R
 
 #### Acceptance Criteria
 
-1. THE System SHALL process all data within GCP region specified by settings (data locality)
-2. THE System SHALL use local Ollama instance (no external API calls to OpenAI, Anthropic, etc.)
-3. THE System SHALL NOT send user queries or BigQuery results to external services
+1. THE System SHALL process all BigQuery data within GCP region specified by settings (data locality)
+2. THE System SHALL use Featherless.ai API for LLM inference (external service, requires privacy review)
+3. THE System SHALL send only user questions to Featherless.ai API, NOT BigQuery results or data
 4. THE System SHALL log only metadata (query structure, row counts), not raw data values
 5. THE System SHALL enforce BigQuery IAM permissions (service account should have least-privilege access)
 6. THE System SHALL NOT persist chat history (MVP: stateless, no database storage)
 7. WHEN chat history persistence is added, THE System SHALL implement data retention policies (e.g., 30-day TTL)
-8. THE System SHALL document data flows in architecture diagram (user → FastAPI → Ollama → BigQuery)
+8. THE System SHALL document data flows in architecture diagram (user → FastAPI → Featherless.ai → SQL → BigQuery)
 9. THE System SHALL sanitize error messages to prevent leaking sensitive information
-10. THE System SHALL support disabling NLQ feature via NLQ_ENABLED flag for compliance audits
+10. THE System SHALL support disabling NLQ feature via LLM_ENABLED flag for compliance audits
+11. THE System SHALL document that user questions are sent to Featherless.ai API (external service) in privacy policy
+12. THE System SHALL NOT include sensitive data (PII, student names, scores) in system prompts sent to LLM
 
 ### Requirement 15: Documentation and Developer Experience
 
@@ -311,9 +321,9 @@ The interface operates within the existing FastAPI application on Google Cloud R
 
 ### Performance
 
-- **Response Time**: P95 < 15 seconds end-to-end (LLM inference + query execution)
-- **Concurrency**: Support 10 concurrent users (Cloud Run autoscaling with concurrency=5)
-- **Cold Start**: < 60 seconds (Ollama startup + model loading)
+- **Response Time**: P95 < 10 seconds end-to-end (LLM API call + query execution)
+- **Concurrency**: Support 50+ concurrent users (Cloud Run autoscaling with concurrency=80)
+- **Cold Start**: < 10 seconds (no local model, only FastAPI startup)
 - **Query Limits**: Maximum 100 rows returned per query
 
 ### Scalability
@@ -347,31 +357,36 @@ The interface operates within the existing FastAPI application on Google Cloud R
 ### Internal Dependencies
 
 - **BigQuery Infrastructure**: Requires core and staging datasets from terraform-gcp-infrastructure spec
-- **Configuration System**: Extends eduscale.core.config.Settings
-- **Logging System**: Uses eduscale.core.logging patterns
+- **Configuration System**: Reuses existing eduscale.core.config.Settings (FEATHERLESS_*, LLM_ENABLED, BIGQUERY_*)
+- **Logging System**: Uses eduscale.core.logging patterns (structlog)
+- **LLM Client**: Reuses existing eduscale.tabular.analysis.llm_client.LLMClient pattern
 - **Storage Backend**: Reads BigQuery using google-cloud-bigquery client
 
 ### External Dependencies
 
-- **Ollama**: Local LLM runtime (installed in Dockerfile)
-- **Llama 3.2 1B**: Open-source LLM model (pulled via Ollama)
+- **Featherless.ai API**: Serverless LLM inference (https://featherless.ai)
+- **Llama 3.1 8B Instruct**: Open-source LLM model via Featherless.ai
 - **BigQuery API**: Google Cloud BigQuery for query execution
-- **Python Libraries**: google-cloud-bigquery>=3.11.0, requests>=2.31.0
+- **Python Libraries**: 
+  - openai>=1.0.0 (already in requirements.txt, used for Featherless.ai client)
+  - google-cloud-bigquery>=3.11.0 (already in requirements.txt)
+  - All other dependencies already satisfied
 
 ### Infrastructure Dependencies
 
-- **Cloud Run**: Hosting platform with 4-8GB memory, 2 vCPUs
+- **Cloud Run**: Hosting platform with standard memory/CPU (no special requirements)
 - **BigQuery**: Data warehouse with read access
 - **Application Default Credentials**: IAM authentication for BigQuery
+- **Featherless.ai API Key**: Required for LLM calls
 
 ## License Compliance
 
-- **Ollama**: MIT License
-- **Llama 3.2**: Open-source (Meta Llama 3 Community License)
+- **Featherless.ai**: Commercial API service (pay-per-use)
+- **Llama 3.1**: Open-source (Meta Llama 3 Community License, free via Featherless.ai)
+- **OpenAI Python Library**: Apache 2.0
 - **google-cloud-bigquery**: Apache 2.0
-- **requests**: Apache 2.0
 
-All dependencies use permissive licenses compatible with commercial deployment.
+All code dependencies use permissive licenses compatible with commercial deployment.
 
 ## Success Criteria
 

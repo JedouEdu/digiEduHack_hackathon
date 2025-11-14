@@ -297,10 +297,12 @@ def resolve_entity(
                 source_value=source_value,
             )
 
-    # Step 7: No match found - mark as NEW
+    # Step 7: No match found - create new entity ID
     logger.info(f"No match found for {entity_type}: {source_value}, marking as NEW")
+    new_entity_id = create_new_entity(entity_type, source_value, region_id)
+    
     return EntityMatch(
-        entity_id="",
+        entity_id=new_entity_id,
         entity_name=source_value,
         entity_type=entity_type,
         similarity_score=0.0,
