@@ -863,19 +863,20 @@ def _process_tabular_path(
         )
         logger.info(f"Normalized DataFrame: {len(df_normalized)} rows")
 
-        # TODO: Steps 5-7 will be implemented in later tasks:
-        # - Validate with Pandera schemas
-        # - Write to clean layer (Parquet)
-        # - Load to BigQuery
+        # Note: TABULAR path currently returns normalized data without BigQuery insertion
+        # Future implementation will add:
+        # - Pandera schema validation
+        # - Clean layer write (Parquet to GCS)
+        # - BigQuery load (via staging tables + MERGE)
+        # For now, normalized data is logged and tracked in ingest_runs table
 
-        # For now, return success with basic info
         return IngestResult(
             file_id=frontmatter.file_id,
             status="INGESTED",
             table_type=table_type,
             rows_loaded=len(df_normalized),
-            clean_location=None,  # TODO: Will be set after clean layer write
-            bytes_processed=None,  # TODO: Will be set after BigQuery load
+            clean_location=None,  # Clean layer not yet implemented
+            bytes_processed=None,  # BigQuery load not yet implemented
             cache_hit=None,
             error_message=None,
             warnings=warnings,
@@ -912,7 +913,7 @@ def _process_free_form_path(
     logger.info(f"Processing FREE_FORM path for file_id={frontmatter.file_id}")
 
     try:
-        # Load entity cache (placeholder for now)
+        # Load entity cache from BigQuery dimension tables
         from eduscale.tabular.analysis.entity_resolver import load_entity_cache
 
         entity_cache = load_entity_cache(frontmatter.region_id)
@@ -929,7 +930,45 @@ def _process_free_form_path(
             f"sentiment={observation.sentiment_score:.3f}"
         )
 
-        # TODO: Store observation and targets in BigQuery
+        # Store observation and targets in BigQuery
+        from eduscale.dwh.client import DwhClient
+        
+        try:
+            dwh_client = DwhClient()
+            
+            # Convert observation to dict for BigQuery
+            observation_dict = {
+                "file_id": observation.file_id,
+                "region_id": observation.region_id,
+                "text_content": observation.text_content,
+                "detected_entities": observation.detected_entities,
+                "sentiment_score": observation.sentiment_score,
+                "original_content_type": observation.original_content_type,
+                "audio_duration_ms": observation.audio_duration_ms,
+                "audio_confidence": observation.audio_confidence,
+                "audio_language": observation.audio_language,
+                "page_count": observation.page_count,
+                "ingest_timestamp": observation.ingest_timestamp.isoformat(),
+            }
+            
+            # Convert targets to dicts for BigQuery
+            target_dicts = []
+            for target in targets:
+                target_dicts.append({
+                    "observation_id": target.observation_id,
+                    "target_type": target.target_type,
+                    "target_id": target.target_id,
+                    "relevance_score": target.relevance_score,
+                    "confidence": target.confidence,
+                })
+            
+            # Insert to BigQuery
+            rows_inserted = dwh_client.insert_observation(observation_dict, target_dicts)
+            logger.info(f"Inserted {rows_inserted} rows to BigQuery")
+            
+        except Exception as e:
+            logger.error(f"Failed to insert observation to BigQuery: {e}")
+            warnings.append(f"BigQuery insert failed: {str(e)}")
 
         return IngestResult(
             file_id=frontmatter.file_id,
