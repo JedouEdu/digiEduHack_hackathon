@@ -74,21 +74,23 @@ jobs:
             --region ${{ env.REGION }} \
             --platform managed
 
-      - name: Grant public access and Eventarc trigger invoker role
-        continue-on-error: true
+      - name: Grant Eventarc trigger invoker role and public access
         run: |
-          # Allow public access to Tabular service
-          gcloud run services add-iam-policy-binding ${{ env.SERVICE_NAME }} \
-            --region ${{ env.REGION }} \
-            --member="allUsers" \
-            --role="roles/run.invoker"
-          
-          # Grant eventarc-trigger-sa access to invoke Tabular service
+          # Grant eventarc-trigger-sa access to invoke Tabular service (required for Eventarc)
           gcloud run services add-iam-policy-binding ${{ env.SERVICE_NAME }} \
             --region ${{ env.REGION }} \
             --member="serviceAccount:eventarc-trigger-sa@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
-            --role="roles/run.invoker" || \
+            --role="roles/run.invoker" \
+            --condition=None || \
           echo "⚠️ Could not bind eventarc-trigger-sa (may not exist yet or already bound)"
+          
+          # Allow public access to Tabular service (for Eventarc and direct calls)
+          gcloud run services add-iam-policy-binding ${{ env.SERVICE_NAME }} \
+            --region ${{ env.REGION }} \
+            --member="allUsers" \
+            --role="roles/run.invoker" \
+            --condition=None || \
+          echo "⚠️ Could not bind allUsers (may already be bound)"
 
       - name: Get service URL
         id: get-url

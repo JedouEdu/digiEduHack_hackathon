@@ -922,21 +922,103 @@ def _process_tabular_path(
         )
         logger.info(f"Normalized DataFrame: {len(df_normalized)} rows")
 
-        # Note: TABULAR path currently returns normalized data without BigQuery insertion
-        # Future implementation will add:
-        # - Pandera schema validation
-        # - Clean layer write (Parquet to GCS)
-        # - BigQuery load (via staging tables + MERGE)
-        # For now, normalized data is logged and tracked in ingest_runs table
+        # Step 5: Write to clean layer (Parquet)
+        from eduscale.tabular.clean_layer import write_clean_parquet
+        
+        clean_location = None
+        try:
+            clean_location_obj = write_clean_parquet(
+                df=df_normalized,
+                table_type=table_type,
+                region_id=frontmatter.region_id,
+                file_id=frontmatter.file_id,
+            )
+            clean_location = clean_location_obj.uri
+            logger.info(f"Wrote clean Parquet: {clean_location}")
+        except Exception as e:
+            logger.error(f"Failed to write clean Parquet: {e}")
+            warnings.append(f"Clean layer write failed: {str(e)}")
+
+        # Step 6: Load to BigQuery via staging → core flow
+        from eduscale.dwh.client import DwhClient
+        
+        load_result = None
+        merge_result = None
+        
+        if clean_location:
+            try:
+                dwh_client = DwhClient()
+                
+                # Load Parquet to staging table
+                load_result = dwh_client.load_parquet_to_staging(
+                    table_type=table_type,
+                    clean_uri=clean_location,
+                    file_id=frontmatter.file_id,
+                    region_id=frontmatter.region_id,
+                )
+                logger.info(
+                    f"Loaded {load_result.rows_loaded} rows to staging table: {table_type}"
+                )
+                
+                # MERGE staging to core table
+                merge_result = dwh_client.merge_staging_to_core(
+                    table_type=table_type,
+                    file_id=frontmatter.file_id,
+                    region_id=frontmatter.region_id,
+                )
+                logger.info(
+                    f"Merged {merge_result.rows_inserted} rows to core table: {table_type}"
+                )
+                
+                # Sync dimension tables from fact tables
+                # Extract unique dates, regions, and schools from normalized DataFrame
+                try:
+                    # Extract dates
+                    if "date" in df_normalized.columns:
+                        dates = df_normalized["date"].dropna().unique().tolist()
+                        if dates:
+                            dwh_client.upsert_dimension_time(dates)
+                    
+                    # Extract regions
+                    if "region_id" in df_normalized.columns:
+                        regions = df_normalized["region_id"].dropna().unique().tolist()
+                        if regions:
+                            region_dicts = [
+                                {"region_id": r, "region_name": None}
+                                for r in regions
+                            ]
+                            dwh_client.upsert_dimension_regions(region_dicts)
+                    
+                    # Extract schools
+                    if "school_name" in df_normalized.columns:
+                        schools_df = df_normalized[["school_name", "region_id"]].dropna(
+                            subset=["school_name"]
+                        ).drop_duplicates()
+                        if not schools_df.empty:
+                            school_dicts = [
+                                {
+                                    "school_name": row["school_name"],
+                                    "region_id": row.get("region_id"),
+                                }
+                                for _, row in schools_df.iterrows()
+                            ]
+                            dwh_client.upsert_dimension_schools(school_dicts)
+                except Exception as e:
+                    logger.warning(f"Failed to sync dimension tables: {e}")
+                    # Don't fail the whole pipeline if dimension sync fails
+                    
+            except Exception as e:
+                logger.error(f"Failed to load tabular data to BigQuery: {e}")
+                warnings.append(f"BigQuery load failed: {str(e)}")
 
         return IngestResult(
             file_id=frontmatter.file_id,
             status="INGESTED",
             table_type=table_type,
             rows_loaded=len(df_normalized),
-            clean_location=None,  # Clean layer not yet implemented
-            bytes_processed=None,  # BigQuery load not yet implemented
-            cache_hit=None,
+            clean_location=clean_location,
+            bytes_processed=load_result.bytes_processed if load_result else None,
+            cache_hit=load_result.cache_hit if load_result else None,
             error_message=None,
             warnings=warnings,
             processing_time_ms=0,  # Will be set by caller
@@ -1029,6 +1111,22 @@ def _process_free_form_path(
             # Insert to BigQuery
             rows_inserted = dwh_client.insert_observation(observation_dict, target_dicts)
             logger.info(f"Inserted {rows_inserted} rows to BigQuery")
+            
+            # Sync dimension tables - at least region_id
+            try:
+                # Upsert region
+                if observation.region_id:
+                    dwh_client.upsert_dimension_regions([
+                        {"region_id": observation.region_id, "region_name": None}
+                    ])
+                
+                # Upsert date from ingest_timestamp if available
+                if observation.ingest_timestamp:
+                    ingest_date = observation.ingest_timestamp.date()
+                    dwh_client.upsert_dimension_time([ingest_date])
+            except Exception as e:
+                logger.warning(f"Failed to sync dimension tables for observation: {e}")
+                # Don't fail the whole pipeline if dimension sync fails
             
         except Exception as e:
             logger.error(f"Failed to insert observation to BigQuery: {e}")

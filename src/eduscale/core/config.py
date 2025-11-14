@@ -76,6 +76,11 @@ class Settings(BaseSettings):
     MAX_TARGETS_PER_FEEDBACK: int = 10  # Max FeedbackTarget records per feedback
     ENTITY_CACHE_TTL_SECONDS: int = 3600  # Cache entity lookups for 1 hour
 
+    # Natural Language Query (NLQ) Configuration
+    NLQ_MAX_RESULTS: int = 100  # Maximum rows returned by NLQ queries
+    NLQ_QUERY_TIMEOUT_SECONDS: int = 60  # Timeout for BigQuery queries
+    BQ_MAX_BYTES_BILLED: int | None = None  # Optional limit on BigQuery bytes billed
+
     @property
     def bigquery_project(self) -> str:
         """Get BigQuery project ID from GCP_PROJECT_ID."""
